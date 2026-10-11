@@ -8,6 +8,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertContentSchedule } from './content-schedule-guard';
 import {
   AutoScheduleDto,
   CreateSessionDto,
@@ -560,6 +561,7 @@ export class SchedulingService {
     const matches = await this.prisma.match.findMany({
       where: {
         eventId,
+        schedulePlanId: null,
         scheduleLocked: false,
         status: MatchStatus.SCHEDULED,
         ...(onlyUnscheduled ? { OR: [{ startTime: null }, { timeSlotId: null }] } : {}),
@@ -682,6 +684,7 @@ export class SchedulingService {
 
     if (!dryRun && assignments.length) {
       await this.prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${eventId}))`;
         for (const assignment of assignments) {
           const original = matches.find((match) => match.id === assignment.matchId)!;
           const written = await transaction.match.updateMany({
@@ -698,6 +701,7 @@ export class SchedulingService {
           });
           if (written.count !== 1) throw new ConflictException('Trận đấu đã bắt đầu hoặc lịch đã thay đổi. Hãy xếp lịch lại.');
         }
+        await assertContentSchedule(transaction, eventId, assignments.map((assignment) => assignment.matchId));
       });
     }
     return {

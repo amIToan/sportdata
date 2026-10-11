@@ -19,7 +19,7 @@ function matches(record, where) {
 
 function fixture({ athlete2Id = 'b', winnerId = null } = {}) {
   const event = { id: 'event', startDate: new Date('2026-10-11'), endDate: new Date('2026-10-20') };
-  const category = { id: 'category', matchDurationSeconds: 180 };
+  const category = { id: 'category', sportId: 'sport', matchDurationSeconds: 180 };
   const athletes = ['a', 'b', 'c'].map((id) => ({ id, events: [], categories: [], entries: [
     { eventId: event.id, categoryId: category.id, type: 'INDIVIDUAL', status: 'VERIFIED' },
   ] }));
@@ -35,10 +35,14 @@ function fixture({ athlete2Id = 'b', winnerId = null } = {}) {
   const db = {
     $queryRaw: async () => [],
     event: { findUnique: async () => event },
-    category: { findFirst: async () => category },
+    category: { findFirst: async () => category, findUnique: async () => category },
+    // This suite isolates registration; rest behavior is covered by scheduling tests.
+    sportSchedulingRule: { findMany: async () => [{ sportId: 'sport', minRestMinutes: 0 }] },
     fop: { count: async () => 1 },
+    team: { findMany: async () => [] },
     athlete: { count: async ({ where }) => athletes.filter((athlete) => matches(athlete, where)).length },
     match: {
+      findMany: async () => [],
       findUnique: async () => structuredClone(match),
       findFirst: async () => overlap,
       create: async ({ data }) => { writes.push(data); return data; },

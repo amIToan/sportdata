@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsEnum, IsArray, IsInt, Max, Min } from 'class-validator';
+import { IsIn, IsString, IsOptional, IsNumber, IsEnum, IsArray, IsInt, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   BeltLevel,
@@ -63,6 +63,10 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsNumber()
   maxWeight?: number;
+
+  @IsOptional()
+  @IsIn(['CAPPED', 'OVER', 'OPEN'])
+  weightKind?: string;
 
   @ApiPropertyOptional({ enum: CompetitionFormat })
   @IsOptional()

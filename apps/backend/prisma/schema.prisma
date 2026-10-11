@@ -467,6 +467,8 @@ model Sport {
 }
 
 model Category {
+  scheduleOwners       MatchScheduleCategory[]
+  weightKind           String?
   drawPreconfigurations DrawPreconfiguration[]
   id                   String              @id @default(cuid())
   name                 String
@@ -519,6 +521,7 @@ enum EventAgeLimitMode {
 }
 
 model Event {
+  schedulePlans MatchSchedulePlan[]
   eventParticipations EventParticipation[]
   drawPreconfigurations DrawPreconfiguration[]
   id                       String                   @id @default(cuid())
@@ -842,6 +845,12 @@ model PaymentTransaction {
 }
 
 model Match {
+  schedulePlanId     String?
+  schedulePlan       MatchSchedulePlan? @relation(fields: [schedulePlanId], references: [id], onDelete: Restrict)
+  scheduleRevisionId String?
+  scheduleSequence   Int?
+  scheduleWindowId   String?
+  scheduleItems      MatchScheduleItem[]
   id                 String              @id @default(cuid())
   eventId            String
   event              Event               @relation(fields: [eventId], references: [id])
@@ -939,6 +948,80 @@ model Match {
   @@index([sessionId, startTime])
   @@index([resultStatus])
   @@index([roundRobinGroupId])
+}
+
+model MatchSchedulePlan {
+  id                String @id @default(cuid())
+  eventId           String
+  event             Event @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  name              String
+  timezone          String @default("Asia/Ho_Chi_Minh")
+  draftVersion      Int @default(0)
+  appliedRevisionId String?
+  createKey         String
+  createdBy         String
+  updatedBy         String
+  draft             Json
+  revisions         MatchScheduleRevision[]
+  matches           Match[]
+  categories        MatchScheduleCategory[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([eventId, createKey])
+  @@index([eventId])
+}
+
+model MatchScheduleRevision {
+  id            String @id @default(cuid())
+  planId        String
+  plan          MatchSchedulePlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  draftVersion  Int
+  inputHash     String
+  config        Json
+  proposal      Json
+  appliedAt     DateTime?
+  appliedBy     String?
+  applyKey      String? @unique
+  applyHash     String?
+  createdBy     String
+  createdAt     DateTime @default(now())
+  items         MatchScheduleItem[]
+
+  @@index([planId, createdAt])
+}
+
+model MatchScheduleItem {
+  id                 String @id @default(cuid())
+  revisionId         String
+  revision           MatchScheduleRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  matchId            String
+  match              Match @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  chainSequence      Int
+  windowId           String
+  localDate          String
+  fopId              String
+  blockId            String
+  stageKey           String
+  startTime          DateTime
+  endTime            DateTime
+  turnaroundSeconds  Int
+
+  @@unique([revisionId, matchId])
+  @@unique([revisionId, chainSequence])
+  @@index([matchId])
+}
+
+model MatchScheduleCategory {
+  id         String @id @default(cuid())
+  eventId    String
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  planId     String
+  plan       MatchSchedulePlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([eventId, categoryId])
+  @@index([planId])
 }
 
 model Draw {

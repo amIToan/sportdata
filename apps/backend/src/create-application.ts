@@ -29,17 +29,17 @@ export async function configureApplication(app: INestApplication) {
       brotli: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } },
     }),
   );
-  app.use(
-    rateLimit({
-      windowMs: Number(process.env.RATE_LIMIT_TTL_MS || 60_000),
-      limit: Number(process.env.RATE_LIMIT_REQUESTS || 120),
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-      skip: (request) =>
-        request.path === "/api/health/live" ||
-        request.path === "/api/health/ready",
-    }),
-  );
+  // app.use(
+    // rateLimit({
+    //   windowMs: Number(process.env.RATE_LIMIT_TTL_MS || 60_000),
+    //   limit: Number(process.env.RATE_LIMIT_REQUESTS || 120),
+    //   standardHeaders: "draft-8",
+    //   legacyHeaders: false,
+    //   skip: (request) =>
+    //     request.path === "/api/health/live" ||
+    //     request.path === "/api/health/ready",
+    // }),
+  // );
   app.use((request: Request, response: Response, next: NextFunction) => {
     if (isEventStream(request)) {
       response.setHeader("Cache-Control", "no-store, no-transform");

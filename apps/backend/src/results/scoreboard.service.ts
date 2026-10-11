@@ -9,7 +9,7 @@ const SCOREBOARD_LEASE_MS = 20_000;
 const MAX_SCORE = 50;
 
 type Award = { id: number; side: number; award: string; points: number; remainingMs: number; at: string; actor: string; penaltyLevel?: number; opponentAward?: { side: number; award: 'ADVANTAGE' | 'POINTS'; points: number }; scoreChanges?: { side: number; before: number; after: number }[]; undone?: boolean };
-type Clock = { remainingMs: number; runningSince: string | null; actions: Award[]; finishedAt?: string };
+type Clock = { remainingMs: number; runningSince: string | null; actions: Award[]; startedAt?: string; finishedAt?: string };
 
 @Injectable()
 export class ScoreboardService {
@@ -156,6 +156,7 @@ export class ScoreboardService {
         await this.matches.assertScoreboardReady(tx, match);
         update.status = MatchStatus.RUNNING;
         clock.runningSince = now.toISOString();
+        clock.startedAt = now.toISOString();
       } else {
         if (match.status !== 'RUNNING') throw new BadRequestException('Hãy bắt đầu trận đấu trước');
         if (dto.action === 'RESUME') {

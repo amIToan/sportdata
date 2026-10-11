@@ -62,6 +62,8 @@ import {
 } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
 import { InlineMatchSchedule } from './InlineMatchSchedule';
+import { MatchSchedulingWorkspace } from './scheduling/MatchSchedulingWorkspace';
+import { navigateSchedule } from './scheduling/schedule-ui';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { ticketDesign, validateTicketDesign, type TicketDesign } from '@/lib/ticket-design';
 import type { BracketDraw } from '@/components/brackets/SportdataBracket';
@@ -311,7 +313,7 @@ export function EventWorkspace({ event, onRefresh }: EventWorkspaceProps) {
     if (!eventTabKeys.includes(tab as EventTabKey)) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    navigateSchedule(() => router.replace(`${pathname}?${params.toString()}`, { scroll: false }));
   };
 
   return (
@@ -338,7 +340,7 @@ export function EventWorkspace({ event, onRefresh }: EventWorkspaceProps) {
         },
         {
           key: 'matches',
-          label: <span className="flex items-center gap-2"><List className="h-4 w-4" />Trận đấu</span>,
+          label: <span className="flex items-center gap-2"><List className="h-4 w-4" />Trận đấu/Sắp xếp</span>,
           children: <MatchesTab event={event} returnTo={workspaceHref('matches')} canOperate={canOperate} canScore={canScore} canEditMatch={canEditEvent || canOperate} canEditBracket={canOperate} />,
         },
         {
@@ -1462,7 +1464,17 @@ type MatchFilters = {
   venue?: string;
 };
 
-function MatchesTab({ event, returnTo, canOperate, canScore, canEditMatch, canEditBracket }: { event: any; returnTo: string; canOperate: boolean; canScore: boolean; canEditMatch: boolean; canEditBracket: boolean }) {
+function MatchesTab(props: { event: any; returnTo: string; canOperate: boolean; canScore: boolean; canEditMatch: boolean; canEditBracket: boolean }) {
+  const [view, setView] = useState<'schedule' | 'tree'>('schedule');
+  return <div className="space-y-4">
+    <Segmented value={view} onChange={(value) => navigateSchedule(() => setView(value as 'schedule' | 'tree'))}
+      options={[{ value: 'schedule', label: 'Sắp xếp trận đấu' }, { value: 'tree', label: 'Sơ đồ cây' }]} />
+    {view === 'schedule' ? <MatchSchedulingWorkspace event={props.event} canEdit={props.canOperate} canScore={props.canScore} />
+      : <LegacyMatchesTab key={view} {...props} initialView="tree" />}
+  </div>;
+}
+
+function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch, canEditBracket, initialView = 'tree' }: { event: any; returnTo: string; canOperate: boolean; canScore: boolean; canEditMatch: boolean; canEditBracket: boolean; initialView?: 'tree' | 'list' }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1473,7 +1485,7 @@ function MatchesTab({ event, returnTo, canOperate, canScore, canEditMatch, canEd
     ? requestedCategoryId
     : event.categories?.[0]?.id || '';
   const matchReturnTo = categoryId ? `${returnTo}&categoryId=${encodeURIComponent(categoryId)}` : returnTo;
-  const [view, setView] = useState<'tree' | 'list'>('list');
+  const [view, setView] = useState<'tree' | 'list'>(initialView);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<MatchFilters>({});
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>();

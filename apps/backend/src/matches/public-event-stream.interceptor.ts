@@ -24,8 +24,9 @@ export class PublicEventStreamInterceptor implements NestInterceptor {
     const resultWrite = /^\/api\/results\/matches\/[^/]+\/(?:enter|referee-confirm|approve|publish|lock|reopen)$/.test(path);
     const scoreboardWrite = /^\/api\/results\/matches\/[^/]+\/scoreboard$/.test(path)
       && ['START', 'FINISH'].includes(request.body?.action);
+    const planApply = /^\/api\/scheduling\/events\/[^/]+\/plans\/[^/]+\/apply$/.test(path);
     const scheduleWrite = /^\/api\/scheduling\/events\/[^/]+\/auto-schedule$/.test(path);
-    if (!matchWrite && !drawWrite && !resultWrite && !scoreboardWrite && !scheduleWrite) return next.handle();
+    if (!matchWrite && !drawWrite && !resultWrite && !scoreboardWrite && !scheduleWrite && !planApply) return next.handle();
 
     // Moving a match must also refresh its old event. This is a normal read;
     // notifications need no schema changes, triggers or extra DB connections.

@@ -1,5 +1,8 @@
 import { assertAthleteEligibility } from '../competitions/athlete-eligibility';
 import { resolveEventAgeLimits } from '../events/event-age-limits';
+import { isAutomaticScheduleBye } from '../scheduling/planner/main-tree';
+import { activeContentBlockers } from '../scheduling/planner/participant-content';
+import { assertContentSchedule } from '../scheduling/content-schedule-guard';
 import {
   BadRequestException,
   ConflictException,
@@ -124,8 +127,31 @@ export class MatchesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async assertScoreboardReady(db: PrismaService | Prisma.TransactionClient, match: Match) {
+    if (match.schedulePlanId && match.scheduleRevisionId) {
+      const current = await db.matchScheduleItem.findUnique({ where: { revisionId_matchId: { revisionId: match.scheduleRevisionId, matchId: match.id } } });
+      if (!current) throw new ConflictException('Lịch thi đấu không nhất quán. Hãy mở lịch để kiểm tra.');
+      const earlier = await db.matchScheduleItem.findMany({ where: { revisionId: match.scheduleRevisionId,
+        chainSequence: { lt: current.chainSequence } }, include: { match: true } });
+      const unfinished = earlier.find((item) => (item.blockId !== current.blockId || item.stageKey !== current.stageKey)
+        && item.match.status !== 'FINISHED' && !isAutomaticScheduleBye(item.match));
+      if (unfinished) throw new ConflictException(`Vòng/nội dung trước còn trận #${unfinished.match.matchNumber || unfinished.matchId} chưa hoàn tất.`);
+    }
     if (!match.athlete1Id || !match.athlete2Id || match.athlete1Id === match.athlete2Id) {
       throw new BadRequestException('Cần đủ hai VĐV khác nhau trước khi bắt đầu');
+    }
+    const [contentMatches, contentTeams] = await Promise.all([
+      db.match.findMany({ where: { eventId: match.eventId }, include: { category: true, draw: true, participants: true,
+        athlete1: { select: { fullName: true } }, athlete2: { select: { fullName: true } } } }),
+      db.team.findMany({ where: { eventId: match.eventId }, include: { members: true } }),
+    ]);
+    const currentContentMatch = contentMatches.find((item) => item.id === match.id);
+    if (currentContentMatch) {
+      const blocked = activeContentBlockers(contentMatches, new Map(contentTeams.map((team) => [team.id, team.members.map((member) => member.athleteId)])), currentContentMatch)[0];
+      if (blocked) {
+        const previous = contentMatches.find((item) => item.categoryId === blocked.categoryId)!;
+        const name = blocked.participantId === `athlete:${match.athlete1Id}` ? currentContentMatch.athlete1?.fullName : currentContentMatch.athlete2?.fullName;
+        throw new ConflictException(`${name || 'VĐV'} chưa hoàn tất nội dung ${previous.category.name}; còn trận/nhánh có thể thi đấu. Phải bị loại hoàn toàn hoặc hoàn tất trận cuối rồi mới được bắt đầu ${currentContentMatch.category.name}.`);
+      }
     }
     if (!match.fopId || !match.startTime || !match.endTime || match.endTime <= match.startTime) {
       throw new BadRequestException('Cần xếp sân/FOP, giờ bắt đầu và kết thúc trước khi thi đấu');
@@ -160,17 +186,21 @@ export class MatchesService {
     if (live) throw new ConflictException('Sân hoặc VĐV đang thi đấu ở trận khác');
     await this.assertFopAvailability(db, match.eventId, match.fopId, match.startTime, match.endTime, match.id);
     await this.assertParticipantAvailability(db, match.eventId, match.categoryId, athletes, match.startTime, match.endTime, match.id);
-    // Temporarily disabled: minimum rest time between completed matches.
-    // const category = await db.category.findUnique({ where: { id: match.categoryId } });
-    // const rule = await db.sportSchedulingRule.findUnique({ where: { eventId_sportId: { eventId: match.eventId, sportId: category.sportId } } });
-    // const recent = await db.match.findMany({ where: { eventId: match.eventId, status: MatchStatus.FINISHED,
-    //   OR: [{ athlete1Id: { in: athletes } }, { athlete2Id: { in: athletes } }],
-    // }, select: { resultData: true, resultEnteredAt: true } });
-    // const restMs = (rule?.minRestMinutes ?? 60) * 60_000;
-    // if (recent.some((item) => {
-    //   const finishedAt = (item.resultData as any)?.scoreboard?.finishedAt || item.resultEnteredAt?.toISOString();
-    //   return finishedAt && Date.now() - Date.parse(finishedAt) < restMs;
-    // })) throw new ConflictException('VĐV chưa đủ thời gian nghỉ sau trận vừa kết thúc');
+    const category = await db.category.findUnique({ where: { id: match.categoryId } });
+    const rule = await db.sportSchedulingRule.findUnique({ where: { eventId_sportId: { eventId: match.eventId, sportId: category.sportId } } });
+    const recent = await db.match.findMany({ where: { eventId: match.eventId, status: MatchStatus.FINISHED,
+      id: { not: match.id }, OR: [{ athlete1Id: { in: athletes } }, { athlete2Id: { in: athletes } },
+        { team1: { members: { some: { athleteId: { in: athletes } } } } },
+        { team2: { members: { some: { athleteId: { in: athletes } } } } },
+        { participants: { some: { OR: [{ athleteId: { in: athletes } }, { team: { members: { some: { athleteId: { in: athletes } } } } }] } } }],
+    }, include: { category: { select: { sportId: true } } } });
+    const rules = await db.sportSchedulingRule.findMany({ where: { eventId: match.eventId } });
+    if (recent.filter((item) => !isAutomaticScheduleBye(item)).some((item) => {
+      const actual = (item.resultData as any)?.scoreboard?.finishedAt;
+      const finishedAt = actual ? Date.parse(actual) : item.endTime?.getTime();
+      const restMs = Math.max(rule?.minRestMinutes ?? 60, rules.find((entry) => entry.sportId === item.category.sportId)?.minRestMinutes ?? 60) * 60_000;
+      return finishedAt && Date.now() - finishedAt < restMs;
+    })) throw new ConflictException('VĐV chưa đủ thời gian nghỉ sau trận vừa kết thúc');
   }
 
   async findAll(query: QueryMatchDto, includeUnpublishedResults = false) {
@@ -533,9 +563,11 @@ export class MatchesService {
     };
 
     try {
-      return await this.prisma.match.create({
-        data,
-        include: MATCH_INCLUDE,
+      return await this.prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${createMatchDto.eventId}))`;
+        const created = await transaction.match.create({ data, include: MATCH_INCLUDE });
+        if (startTime && endTime) await assertContentSchedule(transaction, createMatchDto.eventId, [created.id]);
+        return created;
       });
     } catch (error) {
       this.rethrowScheduleConstraint(error);
@@ -582,6 +614,11 @@ export class MatchesService {
         'fopId',
         'fop',
       ].some((field) => (updateMatchDto as Record<string, unknown>)[field] !== undefined);
+      if (previous.schedulePlanId && (changesSchedule || ['drawId', 'round', 'bracketPosition', 'matchNumber', 'winnerToMatchId', 'loserToMatchId']
+        .some((field) => (updateMatchDto as Record<string, unknown>)[field] !== undefined))) {
+        throw new ConflictException(`Trận thuộc lịch ${previous.schedulePlanId}. Mở Sắp xếp trận đấu để chỉnh sửa.`);
+      }
+      if (previous.status === MatchStatus.FINISHED && changesSchedule) throw new BadRequestException('Không đổi lịch sử thời gian của trận đã kết thúc.');
       if (previous.scheduleLocked && changesSchedule) {
         throw new BadRequestException('Lịch thi đấu đã khóa; hãy mở khóa lịch trước khi thay đổi');
       }
@@ -767,6 +804,9 @@ export class MatchesService {
       if (updateMatchDto.notes !== undefined) data.notes = updateMatchDto.notes;
 
       const updated = await transaction.match.update({ where: { id }, data });
+      if (updated.startTime && updated.endTime && (changesSchedule || updateMatchDto.athlete1Id !== undefined || updateMatchDto.athlete2Id !== undefined)) {
+        await assertContentSchedule(transaction, updated.eventId, [id]);
+      }
       await this.syncProgression(transaction, previous, updated);
 
       return transaction.match.findUnique({
@@ -780,7 +820,8 @@ export class MatchesService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const match = await this.findOne(id);
+    if (match.schedulePlanId) throw new ConflictException('Trận thuộc lịch đã áp dụng; mở Sắp xếp trận đấu để kiểm tra.');
     return this.prisma.match.delete({ where: { id } });
   }
 
@@ -889,6 +930,9 @@ export class MatchesService {
 
   async revertDraw(eventId: string, categoryId: string, version: string, actorUserId: string) {
     return this.drawTransaction(eventId, async (db) => {
+      if (await db.matchScheduleCategory.findUnique({ where: { eventId_categoryId: { eventId, categoryId } } })) {
+        throw new ConflictException('Hạng đấu đang thuộc lịch đã áp dụng; không thể thu hồi nhánh.');
+      }
       // Result entry also locks individual matches. Lock every match of this
       // category before checking, so an in-flight result cannot be deleted.
       await db.$queryRaw`SELECT "id" FROM "Match" WHERE "eventId" = ${eventId}
@@ -1348,6 +1392,7 @@ export class MatchesService {
         where: {
           eventId,
           startTime: null,
+          schedulePlanId: null,
           scheduleLocked: false,
           status: { not: MatchStatus.CANCELLED },
         },
@@ -2193,19 +2238,10 @@ export class MatchesService {
     excludeMatchId?: string,
   ) {
     if (!athleteIds.length) return;
-    // Temporarily disabled: retain overlap checks without a rest-time buffer.
-    // const category = await (database as any).category.findUnique({
-    //   where: { id: categoryId },
-    //   select: { sportId: true },
-    // });
-    // const rule = category
-    //   ? await (database as any).sportSchedulingRule.findUnique({
-    //     where: { eventId_sportId: { eventId, sportId: category.sportId } },
-    //     select: { minRestMinutes: true },
-    //   })
-    //   : null;
-    // const restMs = (rule?.minRestMinutes ?? 60) * 60_000;
-    const restMs = 0;
+    const category = await database.category.findUnique({ where: { id: categoryId }, select: { sportId: true } });
+    const rules = await database.sportSchedulingRule.findMany({ where: { eventId } });
+    const restMinutes = rules.find((rule) => rule.sportId === category?.sportId)?.minRestMinutes ?? 60;
+    const restMs = restMinutes * 60_000;
     const conflict = await (database as any).match.findFirst({
       where: {
         eventId,
@@ -2217,6 +2253,9 @@ export class MatchesService {
           { athlete1Id: { in: athleteIds } },
           { athlete2Id: { in: athleteIds } },
           { participants: { some: { athleteId: { in: athleteIds } } } },
+          { team1: { members: { some: { athleteId: { in: athleteIds } } } } },
+          { team2: { members: { some: { athleteId: { in: athleteIds } } } } },
+          { participants: { some: { team: { members: { some: { athleteId: { in: athleteIds } } } } } } },
         ],
       },
       select: { id: true, matchNumber: true },
