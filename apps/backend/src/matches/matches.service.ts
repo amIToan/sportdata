@@ -446,20 +446,12 @@ export class MatchesService {
       createMatchDto.athlete2Id,
       createMatchDto.winnerId,
     ].filter((id): id is string => Boolean(id))));
-    if (participantIds.length) {
-      const eligibleCount = await this.prisma.athlete.count({
-        where: {
-          id: { in: participantIds },
-          events: { some: { id: createMatchDto.eventId } },
-          categories: { some: { id: createMatchDto.categoryId } },
-        },
-      });
-      if (eligibleCount !== participantIds.length) {
-        throw new BadRequestException(
-          'Vận động viên chưa đăng ký hạng đấu này trong sự kiện',
-        );
-      }
-    }
+    await this.assertParticipantsRegistered(
+      this.prisma,
+      createMatchDto.eventId,
+      createMatchDto.categoryId,
+      participantIds,
+    );
 
     const startTime = createMatchDto.startTime
       ? new Date(createMatchDto.startTime)
@@ -646,20 +638,12 @@ export class MatchesService {
           ? updateMatchDto.winnerId
           : previous.winnerId,
       ].filter((athleteId): athleteId is string => Boolean(athleteId))));
-      if (participantIds.length) {
-        const eligibleCount = await transaction.athlete.count({
-          where: {
-            id: { in: participantIds },
-            events: { some: { id: resultingEventId } },
-            categories: { some: { id: resultingCategoryId } },
-          },
-        });
-        if (eligibleCount !== participantIds.length) {
-          throw new BadRequestException(
-            'Vận động viên chưa đăng ký hạng đấu này trong sự kiện',
-          );
-        }
-      }
+      await this.assertParticipantsRegistered(
+        transaction,
+        resultingEventId,
+        resultingCategoryId,
+        participantIds,
+      );
 
       const resultingStartTime = updateMatchDto.startTime !== undefined
         ? updateMatchDto.startTime ? new Date(updateMatchDto.startTime) : null
@@ -2161,6 +2145,42 @@ export class MatchesService {
       winMethod: null,
       resultData: null,
     };
+  }
+
+  private async assertParticipantsRegistered(
+    database: PrismaService | Prisma.TransactionClient,
+    eventId: string,
+    categoryId: string,
+    athleteIds: string[],
+  ) {
+    if (!athleteIds.length) return;
+    const eligibleCount = await database.athlete.count({
+      where: {
+        id: { in: athleteIds },
+        OR: [
+          // Entries identify registration for the event/category used by draws.
+          // Verified athletes may have no legacy event/category links.
+          { entries: { some: {
+            eventId,
+            categoryId,
+            type: 'INDIVIDUAL',
+            status: { in: [EntryStatus.REGISTERED, EntryStatus.VERIFIED] },
+          } } },
+          // Preserve legacy registrations only when no entry exists for this
+          // event/category, so stale links cannot bypass a withdrawn entry.
+          {
+            entries: { none: { eventId, categoryId } },
+            events: { some: { id: eventId } },
+            categories: { some: { id: categoryId } },
+          },
+        ],
+      },
+    });
+    if (eligibleCount !== athleteIds.length) {
+      throw new BadRequestException(
+        'Vận động viên chưa đăng ký hạng đấu này trong sự kiện',
+      );
+    }
   }
 
   private async assertParticipantAvailability(
