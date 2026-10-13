@@ -97,6 +97,7 @@ async function addParticipation(account, type, media, eventIndex = 0, metadata =
   const participation = await prisma.eventParticipation.create({ data: {
     accountId: account.id, eventId: eventIds[eventIndex], role: account.accountType,
     contactName: account.displayName, contactEmail: account.email,
+    federationId: ['TEAM_LEADER', 'REFEREE'].includes(account.accountType) ? federationId : null,
     identityType: type, documentEncrypted: metadata && identityRecord
       ? identityRecord.keys.cccdEncrypted || identityRecord.keys.passportEncrypted : null,
     referenceCode: `QA-${randomUUID()}`, createdAt: new Date(`2026-10-${eventIndex ? '02' : '01'}`), media: { create: media },
@@ -172,6 +173,15 @@ async function main() {
     await addAthlete(noNumber, await files(fullTypes('CCCD'), 'no-number'));
 
     const all = await list(adminToken);
+    if (all.summary.complete !== expected.filter((item) => item.complete).length) {
+      const completeDiagnostic = await list(adminToken, { profileStatus: 'COMPLETE' });
+      const includedIds = new Set(completeDiagnostic.items.map((item) => item.id));
+      console.error('Synthetic completeness diagnostics:', JSON.stringify(all.items.map((item) => ({
+        name: item.displayName.replace(`${marker} `, ''),
+        expected: expected.find((fixture) => fixture.id === item.id).complete,
+        projected: item.profile.complete, databaseComplete: includedIds.has(item.id), identityType: item.profile.identityType,
+      })), null, 2));
+    }
     checkSummary(all, expected);
     assert.equal(all.items.length, expected.length);
     for (const sensitive of ['storageKey', 'documentEncrypted', 'password', 'documentHash', 'athlete', 'eventParticipations']) {
