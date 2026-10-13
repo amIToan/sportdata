@@ -21,6 +21,9 @@ export type EventParticipation = {
   contactName: string;
   contactEmail: string;
   contactPhone?: string | null;
+  identityType?: 'CCCD' | 'PASSPORT' | null;
+  documentNumber?: string;
+  media?: { type: 'AVATAR' | 'CCCD_FRONT' | 'CCCD_BACK' | 'PASSPORT'; mimeType: string; size: number; verificationStatus?: string | null }[];
   status: string;
   statusReason?: string | null;
   createdAt: string;

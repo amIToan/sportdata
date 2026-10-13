@@ -1,16 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowUpRight, Check, Flag, HeartPulse, ShieldCheck, Trophy, UserRound, Users } from 'lucide-react';
+import { ArrowUpRight, Check, Flag, ShieldCheck, Trophy, Users } from 'lucide-react';
 import { type EventRole } from '@/lib/event-participation';
 
 export const registrationRoles = [
-  { value: 'ATTENDEE', label: 'Người tham gia bình thường', description: 'Tham dự sự kiện, không đăng ký thi đấu.', icon: UserRound },
   { value: 'ATHLETE', label: 'Vận động viên', description: 'Chọn nội dung thi đấu và gửi hồ sơ VĐV cá nhân hoặc đội.', icon: Trophy },
   { value: 'REFEREE', label: 'Trọng tài', description: 'Đăng ký tham gia công tác trọng tài tại sự kiện.', icon: ShieldCheck },
   { value: 'TEAM_LEADER', label: 'Trưởng đoàn', description: 'Chọn Liên đoàn bạn đại diện tại sự kiện này.', icon: Flag },
   { value: 'COACH', label: 'Huấn luyện viên', description: 'Tham gia với vai trò huấn luyện, hỗ trợ VĐV.', icon: Users },
-  { value: 'MEDICAL_STAFF', label: 'Nhân viên y tế', description: 'Tham gia công tác y tế và chăm sóc người tham dự.', icon: HeartPulse },
 ] as const;
 
 export function RegistrationRolePicker({ eventId, value, onSelect, disabled = false }: {

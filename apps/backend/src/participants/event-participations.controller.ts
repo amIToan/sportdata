@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { ImageVariant, ImageVariantPipe } from '../storage/image-variant';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -16,6 +17,26 @@ export class EventParticipationsController {
   @UseGuards(OptionalParticipantAuthGuard)
   create(@Body() dto: CreateEventParticipationDto, @Req() request: Request & { participant?: { id: string } }) {
     return this.service.create(dto, request.participant?.id);
+  }
+
+  @Get('event-participations/:id/avatar')
+  async avatar(@Param('id') id: string, @Res() response: Response, @Query('variant', ImageVariantPipe) variant?: ImageVariant) {
+    const media = await this.service.getPublicAvatar(id, variant);
+    response.setHeader('Content-Type', media.mimeType);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.send(media.data);
+  }
+
+  @Get('admin/event-participations/:id/media/:type')
+  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN, UserRole.READ_ONLY)
+  async adminMedia(@Param('id') id: string, @Param('type') type: string, @Res() response: Response,
+    @Query('variant', ImageVariantPipe) variant?: ImageVariant) {
+    const media = await this.service.getAdminMedia(id, type, variant);
+    response.setHeader('Content-Type', media.mimeType);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('Content-Disposition', 'inline');
+    response.send(media.data);
   }
 
   @Get('event-participations')

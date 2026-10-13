@@ -7,6 +7,7 @@ import { CreateAthleteDto } from './dto/create-athlete.dto';
 import { UpdateAthleteDto } from './dto/update-athlete.dto';
 import { QueryAthletesDto } from './dto/query-athletes.dto';
 import { AthleteIdentityService } from './athlete-identity.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
 
 @Injectable()
 export class AthletesService {
@@ -14,6 +15,7 @@ export class AthletesService {
     private readonly prisma: PrismaService,
     private readonly athleteIdentity: AthleteIdentityService,
     private readonly storage: StorageService,
+    private readonly systemSettings: SystemSettingsService,
   ) {}
 
   async create(createAthleteDto: CreateAthleteDto) {
@@ -385,6 +387,14 @@ export class AthletesService {
     this.validateDocumentType(type);
     if (!file) throw new BadRequestException('Vui lòng chọn ảnh giấy tờ');
     this.validateDocumentFile(file);
+    const settings = await this.systemSettings.get();
+    const autoVerify = !settings.values.identityOcrEnabled;
+    const verification = {
+      verificationStatus: autoVerify ? DocumentVerificationStatus.VERIFIED : DocumentVerificationStatus.PENDING,
+      verificationNote: autoVerify ? 'Tự động duyệt vì OCR CCCD / Hộ chiếu đang tắt.' : null,
+      verifiedAt: autoVerify ? new Date() : null,
+      verifiedBy: autoVerify ? 'SYSTEM:OCR_DISABLED' : null,
+    };
     const previous = await this.prisma.athleteMedia.findUnique({ where: { athleteId_type: { athleteId: id, type } }, select: { storageKey: true } });
     return this.storage.withUpload(file, 'athletes/documents', previous?.storageKey, (storageKey, stored) => this.prisma.athleteMedia.upsert({
       where: { athleteId_type: { athleteId: id, type } },
@@ -394,16 +404,13 @@ export class AthletesService {
         storageKey,
         mimeType: file.mimetype,
         size: stored.size,
-        verificationStatus: DocumentVerificationStatus.PENDING,
+        ...verification,
       },
       update: {
         storageKey,
         mimeType: file.mimetype,
         size: stored.size,
-        verificationStatus: DocumentVerificationStatus.PENDING,
-        verificationNote: null,
-        verifiedAt: null,
-        verifiedBy: null,
+        ...verification,
         ocrStatus: DocumentOcrStatus.NOT_REQUESTED,
         ocrProvider: null,
         ocrConfidence: null,

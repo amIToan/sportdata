@@ -15,7 +15,7 @@ import { clearParticipantSession, getParticipantAccount } from '@/lib/participan
 
 const navigation = [
   { href: '/', label: 'Trang chủ', icon: BarChart3 },
-  { href: '/events', label: 'Sự kiện', icon: CalendarDays },
+  { href: '/events', label: 'Bộ môn', icon: CalendarDays },
   { href: '/news', label: 'Tin tức', icon: Newspaper },
   { href: '/contact', label: 'Liên hệ', icon: Mail },
 ];

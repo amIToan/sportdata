@@ -38,13 +38,6 @@ export class IdentityOcrService {
     if (type !== AthleteMediaType.CCCD_FRONT && type !== AthleteMediaType.CCCD_BACK && type !== AthleteMediaType.PASSPORT) {
       throw new BadRequestException('Loại tệp không hỗ trợ đọc giấy tờ');
     }
-    if (!file.mimetype.startsWith('image/')) {
-      return this.failure('OCR chỉ đọc ảnh JPG, PNG hoặc WebP. PDF vẫn được lưu để CMS kiểm duyệt.');
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      return this.failure('Ảnh vượt quá giới hạn 5 MB của dịch vụ OCR.');
-    }
-
     const systemSettings = await this.settings.get();
     if (!systemSettings.values.identityOcrEnabled) {
       return {
@@ -56,6 +49,12 @@ export class IdentityOcrService {
       };
     }
 
+    if (!file.mimetype.startsWith('image/')) {
+      return this.failure('OCR chỉ đọc ảnh JPG, PNG hoặc WebP. PDF vẫn được lưu để CMS kiểm duyệt.');
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      return this.failure('Ảnh vượt quá giới hạn 5 MB của dịch vụ OCR.');
+    }
 
     const integration = await this.settings.integrationValues();
     const apiKey = integration.FPT_AI_API_KEY?.trim();

@@ -3,7 +3,7 @@
 export const TICKET_WIDTH = 105;
 export const TICKET_HEIGHT = 148;
 export const POINTS_PER_MM = 72 / 25.4;
-export const TICKET_FIELDS = ['CUSTOM', 'ATHLETE_NAME', 'FEDERATION', 'COUNTRY', 'EVENT_NAME', 'CATEGORY', 'SPORT', 'EVENT_DATE', 'LOCATION', 'TICKET_CODE', 'STATUS'] as const;
+export const TICKET_FIELDS = ['CUSTOM', 'ROLE', 'ATHLETE_NAME', 'FEDERATION', 'COUNTRY', 'EVENT_NAME', 'CATEGORY', 'SPORT', 'EVENT_DATE', 'LOCATION', 'TICKET_CODE', 'STATUS'] as const;
 export type TicketField = typeof TICKET_FIELDS[number];
 export type TicketElement = {
   id: string;
@@ -49,7 +49,7 @@ export function defaultTicketDesign(): TicketDesign {
     { id: 'photo', type: 'PHOTO', x: 8, y: 41, width: 40, height: 60 },
     { id: 'qr', type: 'QR', x: 65, y: 42, width: 28, height: 28 },
     text('category', 'CATEGORY', 59, 77, 40, 20, 11),
-    text('athlete-title', 'CUSTOM', 7, 105, 91, 10, 20, '#0284C7', 'VẬN ĐỘNG VIÊN'),
+    text('athlete-title', 'ROLE', 7, 105, 91, 10, 20, '#0284C7'),
     text('athlete-name', 'ATHLETE_NAME', 7, 118, 91, 8, 13),
     text('federation', 'FEDERATION', 7, 128, 91, 7, 10),
     text('ticket-code', 'TICKET_CODE', 7, 138, 91, 5, 8),
@@ -106,6 +106,7 @@ export function ticketTextValue(element: TicketElement, ticket: TicketContent): 
   const values: Record<TicketField, string> = {
     CUSTOM: ticket.roleLabel && element.text?.trim().toUpperCase() === 'VẬN ĐỘNG VIÊN'
       ? ticket.roleLabel.toUpperCase() : element.text || '',
+    ROLE: ticket.roleLabel?.toUpperCase() || 'VẬN ĐỘNG VIÊN',
     ATHLETE_NAME: ticket.athlete.fullName,
     FEDERATION: ticket.athlete.federation?.name || (ticket.roleLabel ? 'Người tham gia cá nhân' : 'Vận động viên tự do'),
     COUNTRY: ticket.athlete.country?.name || '—',

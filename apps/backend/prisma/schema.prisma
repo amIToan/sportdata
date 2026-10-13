@@ -720,6 +720,9 @@ model EventParticipation {
   contactName   String
   contactEmail  String
   contactPhone  String?
+  identityType  String?
+  documentEncrypted String?
+  media         EventParticipationMedia[]
   federationId  String?
   federation    Federation?            @relation(fields: [federationId], references: [id], onDelete: Restrict)
   referenceCode String                 @unique
@@ -733,6 +736,22 @@ model EventParticipation {
   @@unique([eventId, contactEmail, role])
   @@index([accountId, createdAt])
   @@index([eventId, role, status])
+}
+
+model EventParticipationMedia {
+  id              String              @id @default(cuid())
+  participationId String
+  participation   EventParticipation  @relation(fields: [participationId], references: [id], onDelete: Cascade)
+  type            AthleteMediaType
+  storageKey      String
+  mimeType        String
+  size            Int
+  verificationStatus DocumentVerificationStatus?
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  createdAt       DateTime            @default(now())
+
+  @@unique([participationId, type])
 }
 
 model EventRegistration {

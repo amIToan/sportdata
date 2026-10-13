@@ -1046,6 +1046,7 @@ export class ParticipantsService {
           }
         }
         const newCategories = item.categories.filter((category) => !existingRegistrations.some((registered) => registered.categoryId === category.id));
+        if (item.existingAthlete && autoVerifyIdentity) await this.autoVerifyIdentityMedia(item.existingAthlete.id, transaction);
         for (const category of item.categories) {
           const registered = existingRegistrations.find((registration) => registration.categoryId === category.id);
           if (!registered) continue;
@@ -2319,8 +2320,8 @@ export class ParticipantsService {
     return { complete: hasCccd || hasPassport, verified: cccdVerified || passportVerified };
   }
 
-  private async autoVerifyIdentityMedia(athleteId: string) {
-    await this.prisma.athleteMedia.updateMany({
+  private async autoVerifyIdentityMedia(athleteId: string, database: Prisma.TransactionClient = this.prisma) {
+    await database.athleteMedia.updateMany({
       where: {
         athleteId,
         type: { in: [AthleteMediaType.CCCD_FRONT, AthleteMediaType.CCCD_BACK, AthleteMediaType.PASSPORT] },

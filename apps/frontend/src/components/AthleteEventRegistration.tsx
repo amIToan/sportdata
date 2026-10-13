@@ -304,10 +304,6 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
     }
     updateAthlete(athleteKey, { [fileField]: optimizedFile, ...(fileField !== 'cccdBack' ? { identityOcr: undefined } : {}) });
     if (mediaType === 'CCCD_BACK') return;
-    if (!optimizedFile.type.startsWith('image/')) {
-      toast.warning('OCR cần ảnh JPG, PNG hoặc WebP. Tệp PDF vẫn có thể gửi để CMS kiểm duyệt thủ công.');
-      return;
-    }
     const form = new FormData();
     form.append('type', mediaType);
     form.append('file', optimizedFile);

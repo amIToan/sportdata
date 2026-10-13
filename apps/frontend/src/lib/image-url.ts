@@ -11,7 +11,7 @@ const transformations: Record<ImageVariant, string> = {
 };
 
 function isStorageImage(path: string) {
-  return /^\/(?:api\/)?(?:participant-auth\/avatar\/[^/]+|banners\/[^/]+\/image|sports\/[^/]+\/(?:logo|background)|events\/[^/]+\/(?:banner-image|logo-image|ticket-background))$/.test(path);
+  return /^\/(?:api\/)?(?:participant-auth\/(?:avatar\/[^/]+|event-participations\/[^/]+\/avatar)|banners\/[^/]+\/image|sports\/[^/]+\/(?:logo|background)|events\/[^/]+\/(?:banner-image|logo-image|ticket-background))$/.test(path);
 }
 
 /** Cloudinary transformations are signed by the API; local/S3 keep their current response. */

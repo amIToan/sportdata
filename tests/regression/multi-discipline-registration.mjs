@@ -31,7 +31,7 @@ function matches(record, where = {}) {
   });
 }
 
-function fixture(paymentMode = 'MANUAL') {
+function fixture(paymentMode = 'MANUAL', identityOcrEnabled = false) {
   let state = { athletes: [], registrations: [], submissions: [], entries: [],
     payments: [], paymentHistory: [], statusHistory: [], emails: [] };
   let sequence = 0;
@@ -81,7 +81,14 @@ function fixture(paymentMode = 'MANUAL') {
     eventRegistration: model('registrations'), athlete: model('athletes'),
     registrationSubmission: model('submissions'), paymentTransaction: model('payments'),
     paymentStatusHistory: model('paymentHistory'), registrationStatusHistory: model('statusHistory'),
-    athleteMedia: { findMany: async ({ where }) => state.athletes.find((athlete) => athlete.id === where.athleteId).media },
+    athleteMedia: {
+      findMany: async ({ where }) => state.athletes.find((athlete) => athlete.id === where.athleteId).media,
+      updateMany: async ({ where: { athleteId, ...where }, data }) => {
+        const records = state.athletes.find((athlete) => athlete.id === athleteId).media.filter((record) => matches(record, where));
+        records.forEach((record) => Object.assign(record, data));
+        return { count: records.length };
+      },
+    },
     competitionEntry: {
       upsert: async ({ create }) => {
         const existing = state.entries.find((entry) => entry.athleteId === create.athleteId && entry.categoryId === create.categoryId);
@@ -114,7 +121,7 @@ function fixture(paymentMode = 'MANUAL') {
     enqueueSubmission: async (_, email, code) => state.emails.push({ email, code }),
     enqueueTicket: async (_, email, code) => state.emails.push({ email, code }),
   };
-  const settings = { get: async () => ({ values: { identityOcrEnabled: false } }) };
+  const settings = { get: async () => ({ values: { identityOcrEnabled } }) };
   const notifications = { notifyRegistration: async () => {} };
   const service = new ParticipantsService(prisma, storage, new JwtService({ secret: 'regression-test' }), {}, queue, settings, notifications, identity);
   const payments = new PaymentsService(prisma, settings, notifications, service);
@@ -201,6 +208,29 @@ const free = fixture('FREE');
 const freeResult = await free.service.createGuestRegistrations(free.payload({ ...free.athlete, categoryIds: selected }), free.files);
 assert.ok(freeResult.registrations.every((registration) => registration.status === 'CONFIRMED' && registration.feeAmount === 0 && registration.paymentStatus === 'NOT_REQUIRED'));
 assert.equal(free.state().entries.length, 6);
+
+// Existing PDF documents are approved during profile reuse when OCR is disabled, without another upload.
+for (const ocrEnabled of [false, true]) {
+  const reused = fixture('FREE', ocrEnabled);
+  const pdfFiles = reused.files.map((file) => file.fieldname.endsWith('_avatar') ? file : {
+    ...file, mimetype: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n%%EOF'), size: 13,
+  });
+  await reused.service.createGuestRegistrations(reused.payload({ ...reused.athlete, categoryId: 'category-0' }), pdfFiles);
+  const documents = reused.state().athletes[0].media.filter((media) => media.type !== 'AVATAR');
+  documents.forEach((document) => {
+    document.verificationStatus = 'PENDING';
+    document.verifiedAt = null;
+    document.verifiedBy = null;
+  });
+  const retried = await reused.service.createGuestRegistrations(reused.payload({ ...await reused.reuse(), categoryId: 'category-0' }), []);
+  assert.equal(retried.registrations[0].existing, true);
+  assert.ok(documents.every((document) => document.verificationStatus === (ocrEnabled ? 'PENDING' : 'VERIFIED')), 'Reuse retries also honor the OCR setting');
+  const next = await reused.service.createGuestRegistrations(reused.payload({ ...await reused.reuse(), categoryId: 'category-4' }), []);
+  assert.equal(next.registrations[0].status, ocrEnabled ? 'SUBMITTED' : 'CONFIRMED');
+  assert.ok(documents.every((document) => document.verificationStatus === (ocrEnabled ? 'PENDING' : 'VERIFIED')));
+  if (!ocrEnabled) assert.ok(documents.every((document) => document.verifiedBy === 'SYSTEM:OCR_DISABLED' && document.verifiedAt instanceof Date));
+  assert.deepEqual(reused.stats(), { uploads: 3, identityChecks: 1 });
+}
 
 // Group submissions map category tickets to athletes and charge all eight discipline registrations.
 const group = fixture();

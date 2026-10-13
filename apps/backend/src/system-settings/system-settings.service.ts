@@ -194,6 +194,17 @@ export class SystemSettingsService {
           verifiedBy: 'SYSTEM:OCR_DISABLED',
         },
       });
+      await this.prisma.eventParticipationMedia.updateMany({
+        where: {
+          type: { in: [AthleteMediaType.CCCD_FRONT, AthleteMediaType.CCCD_BACK, AthleteMediaType.PASSPORT] },
+          verificationStatus: DocumentVerificationStatus.PENDING,
+        },
+        data: {
+          verificationStatus: DocumentVerificationStatus.VERIFIED,
+          verifiedAt: new Date(),
+          verifiedBy: 'SYSTEM:OCR_DISABLED',
+        },
+      });
     }
     return this.get();
   }

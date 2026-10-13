@@ -1,12 +1,41 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { Button, Card, Input, Modal, Select, Table, Tag } from 'antd';
+import { Button, Card, Image, Input, Modal, Select, Spin, Table, Tag } from 'antd';
 import { api, fetcher } from '@/lib/api';
 import { ParticipationTicketActions } from '../ParticipationTicketActions';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { eventRoleLabel, eventRoleOptions, participationStatusLabels, type EventParticipation } from '@/lib/event-participation';
+
+const mediaLabels: Record<string, string> = { AVATAR: 'Ảnh thẻ', CCCD_FRONT: 'Căn cước mặt trước', CCCD_BACK: 'Căn cước mặt sau', PASSPORT: 'Hộ chiếu' };
+
+function ParticipationMediaPreview({ id, media }: { id: string; media: NonNullable<EventParticipation['media']>[number] }) {
+  const [url, setUrl] = useState<string>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setUrl(undefined); setFailed(false);
+    void api.get(`/participant-auth/admin/event-participations/${id}/media/${media.type}`, {
+      responseType: 'blob', params: { variant: 'preview' }, signal: controller.signal,
+    }).then(({ data }) => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(data);
+      setUrl(objectUrl);
+    }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [id, media.type]);
+  return <div className="rounded border border-slate-700 p-3">
+    <p className="mb-2 font-medium">{mediaLabels[media.type]}</p>
+    {media.verificationStatus && <Tag className="mb-2" color={media.verificationStatus === 'VERIFIED' ? 'success' : 'warning'}>
+      {media.verificationStatus === 'VERIFIED' ? 'Giấy tờ đã duyệt' : 'Giấy tờ chờ duyệt'}
+    </Tag>}
+    {failed ? <p>Không thể tải tệp.</p> : !url ? <Spin /> : media.mimeType === 'application/pdf'
+      ? <iframe src={url} title={mediaLabels[media.type]} className="h-64 w-full bg-white" />
+      : <Image src={url} alt={mediaLabels[media.type]} style={{ maxHeight: 240, objectFit: 'contain' }} />}
+  </div>;
+}
 
 export function EventParticipationsTable({ eventId }: { eventId?: string }) {
   const { data = [], isLoading, mutate, error } = useSWR<EventParticipation[]>(`/participant-auth/admin/event-participations${eventId ? `?eventId=${eventId}` : ''}`, fetcher);
@@ -37,15 +66,21 @@ export function EventParticipationsTable({ eventId }: { eventId?: string }) {
         { title: 'Người tham gia', key: 'contact', render: (_, row) => <div><strong>{row.contactName}</strong><p className="text-xs text-slate-500">{row.contactEmail} · {row.contactPhone || '—'}</p></div> },
         { title: 'Sự kiện', key: 'event', render: (_, row) => row.event.name },
         { title: 'Vai trò', key: 'role', filters: eventRoleOptions.filter((item) => item.value !== 'ATHLETE').map((item) => ({ text: item.label, value: item.value })), onFilter: (value, row) => row.role === value, render: (_, row) => <Tag color="blue">{eventRoleLabel(row.role)}</Tag> },
-        { title: 'Liên đoàn', key: 'federation', render: (_, row) => row.federation?.name || '—' },
+        { title: 'Đơn vị / CLB', key: 'federation', render: (_, row) => row.federation?.name || '—' },
+        { title: 'Giấy tờ', key: 'document', render: (_, row) => row.documentNumber ? `${row.identityType === 'CCCD' ? 'CCCD' : 'Hộ chiếu'} · ${row.documentNumber}` : '—' },
         { title: 'Mã hồ sơ', dataIndex: 'referenceCode' },
         { title: 'Trạng thái', dataIndex: 'status', render: (value: string) => <Tag color={value === 'CONFIRMED' ? 'success' : value === 'REJECTED' ? 'error' : 'default'}>{participationStatusLabels[value]}</Tag> },
-        { title: 'Thao tác', key: 'actions', render: (_, row) => <div className="flex flex-wrap gap-2"><ParticipationTicketActions code={row.referenceCode} status={row.status} />{canReview && <Button size="small" onClick={() => { setReview(row); setStatus(row.status === 'SUBMITTED' ? 'CONFIRMED' : row.status); setReason(''); }}>Xét duyệt</Button>}</div> },
+        { title: 'Thao tác', key: 'actions', render: (_, row) => <div className="flex flex-wrap gap-2"><ParticipationTicketActions code={row.referenceCode} status={row.status} /><Button size="small" onClick={() => { setReview(row); setStatus(row.status === 'SUBMITTED' ? 'CONFIRMED' : row.status); setReason(''); }}>{canReview ? 'Xét duyệt' : 'Xem hồ sơ'}</Button></div> },
       ]} />
-      <Modal open={Boolean(review)} title={`Xét duyệt · ${review?.contactName || ''}`} okText="Lưu" cancelText="Hủy" onCancel={() => setReview(undefined)} onOk={() => void save()} confirmLoading={saving} okButtonProps={{ disabled: reason.trim().length < 2 }}>
+      <Modal open={Boolean(review)} title={`Hồ sơ · ${review?.contactName || ''}`} width={760} okText="Lưu" cancelText="Hủy" onCancel={() => setReview(undefined)} onOk={() => void save()} confirmLoading={saving} okButtonProps={{ disabled: reason.trim().length < 2 }} footer={canReview ? undefined : null}>
         <p className="mb-3">{review ? eventRoleLabel(review.role) : ''} · {review?.event.name}</p>
-        <Select className="mb-4 w-full" value={status} onChange={setStatus} options={Object.entries(participationStatusLabels).map(([value, label]) => ({ value, label }))} />
-        <Input.TextArea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} placeholder="Lý do cập nhật trạng thái (bắt buộc)" />
+        <p className="mb-3">Đơn vị / CLB: {review?.federation?.name || '—'}</p>
+        <p className="mb-4">{review?.identityType === 'PASSPORT' ? 'Số hộ chiếu' : 'Số căn cước'}: {review?.documentNumber || '—'}</p>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">{review?.media?.map((media) => <ParticipationMediaPreview key={`${review.id}-${media.type}`} id={review.id} media={media} />)}</div>
+        {canReview && <>
+          <Select className="mb-4 w-full" value={status} onChange={setStatus} options={Object.entries(participationStatusLabels).map(([value, label]) => ({ value, label }))} />
+          <Input.TextArea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} placeholder="Lý do cập nhật trạng thái (bắt buộc)" />
+        </>}
       </Modal>
     </Card>
   );

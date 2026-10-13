@@ -10,7 +10,7 @@ import AthleteEventRegistration from '@/components/AthleteEventRegistration';
 import { NonAthleteEventRegistration } from '@/components/NonAthleteEventRegistration';
 import { RegistrationRolePicker, registrationRoles } from '@/components/RegistrationRolePicker';
 import { SelfAthleteRegistration } from '@/components/SelfAthleteRegistration';
-import { eventRoleOptions, type EventRole } from '@/lib/event-participation';
+import { type EventRole } from '@/lib/event-participation';
 import { fetcher } from '@/lib/api';
 import { getParticipantToken, participantApi } from '@/lib/participant-auth';
 
@@ -34,7 +34,7 @@ export default function EventRegistrationPage() {
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const requested = query.get('role');
-    if (eventRoleOptions.some((item) => item.value === requested)) { setRole(requested as EventRole); setChoosingRole(false); }
+    if (registrationRoles.some((item) => item.value === requested)) { setRole(requested as EventRole); setChoosingRole(false); }
     else if (query.has('mode')) { setRole('ATHLETE'); setChoosingRole(false); }
     if (query.has('mode')) setAthleteMode('OTHER');
     const sync = () => setSignedIn(Boolean(getParticipantToken()));
@@ -68,7 +68,7 @@ export default function EventRegistrationPage() {
       {choosingRole ? <RegistrationRolePicker eventId={eventId} value={role} onSelect={selectRole} /> : selection && <div className="registration-selected-role"><selection.icon size={24} /><div><strong>{selection.label}</strong><p>{selection.description}</p></div></div>}
     </Card>
     {role ? <section aria-label="Thông tin đăng ký" className="registration-form-section">
-      <div className="registration-step-heading mb-5"><span className="registration-step-number">2</span><div><h2>Hoàn tất thông tin đăng ký</h2><p>{role === 'ATHLETE' ? 'Chọn cách đăng ký, nội dung thi đấu và chuẩn bị hồ sơ VĐV.' : 'Kiểm tra thông tin liên hệ để nhận vé qua email.'}</p></div></div>
+      <div className="registration-step-heading mb-5"><span className="registration-step-number">2</span><div><h2>Hoàn tất thông tin đăng ký</h2><p>{role === 'ATHLETE' ? 'Chọn cách đăng ký, nội dung thi đấu và chuẩn bị hồ sơ VĐV.' : 'Điền thông tin liên hệ, đơn vị, giấy tờ định danh và ảnh thẻ.'}</p></div></div>
       {role === 'ATHLETE' ? <>
         {canUseProfile && <Segmented className="mb-5" block value={athleteMode} onChange={(value) => setAthleteMode(String(value))} options={[{ value: 'SELF', label: 'Dùng hồ sơ VĐV của tôi' }, { value: 'OTHER', label: 'Nhập hồ sơ VĐV / danh sách đội' }]} />}
         {signedIn && !profile && !profileError ? <Skeleton active /> : canUseProfile && athleteMode === 'SELF' ? <SelfAthleteRegistration eventId={eventId} categories={event.categories || []} open={open} onMore={() => setAthleteMode('OTHER')} /> : <AthleteEventRegistration embedded />}

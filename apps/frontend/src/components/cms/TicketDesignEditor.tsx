@@ -7,7 +7,7 @@ import { TICKET_HEIGHT, TICKET_WIDTH, TICKET_FIELDS, defaultTicketDesign, type T
 import type { ParticipationTicket } from '@/lib/ticket-types';
 
 const fieldLabels: Record<TicketField, string> = {
-  CUSTOM: 'Nội dung tự nhập', ATHLETE_NAME: 'Tên vận động viên', FEDERATION: 'Đơn vị / CLB', COUNTRY: 'Quốc gia', EVENT_NAME: 'Tên sự kiện', CATEGORY: 'Hạng đấu', SPORT: 'Bộ môn', EVENT_DATE: 'Ngày tổ chức', LOCATION: 'Địa điểm', TICKET_CODE: 'Mã thẻ', STATUS: 'Trạng thái thẻ',
+  CUSTOM: 'Nội dung tự nhập', ROLE: 'Vai trò trên thẻ', ATHLETE_NAME: 'Họ tên trên thẻ', FEDERATION: 'Đơn vị / CLB', COUNTRY: 'Quốc gia', EVENT_NAME: 'Tên sự kiện', CATEGORY: 'Hạng đấu / Vai trò', SPORT: 'Bộ môn', EVENT_DATE: 'Ngày tổ chức', LOCATION: 'Địa điểm', TICKET_CODE: 'Mã thẻ', STATUS: 'Trạng thái thẻ',
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 type Point = { x: number; y: number };
@@ -124,7 +124,7 @@ export function TicketDesignEditor({ ticket, design, onChange, disabled = false 
           <Select className="mb-4 w-full" aria-label="Thành phần đang chọn" value={selected?.id} onChange={setSelectedId} options={design.elements.map((element, index) => ({ value: element.id, label: `${index + 1}. ${label(element)}` }))} />
           {selected && <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">{(['x', 'y'] as const).map((axis) => <label key={axis} className="text-sm">{axis === 'x' ? 'Trái' : 'Trên'} (mm)<InputNumber aria-label={`${axis} (mm)`} className="mt-1 w-full" min={0} max={(axis === 'x' ? TICKET_WIDTH - selected.width : TICKET_HEIGHT - selected.height)} precision={1} step={1} value={selected[axis]} onChange={(value) => value != null && patch({ [axis]: value })} /></label>)}</div>
-            {selected.type === 'PHOTO' && <p className="text-sm text-slate-500">Ảnh VĐV từ hồ sơ đăng ký. Kích thước in cố định 40 × 60 mm.</p>}
+            {selected.type === 'PHOTO' && <p className="text-sm text-slate-500">Ảnh thẻ từ hồ sơ đăng ký. Kích thước in cố định 40 × 60 mm.</p>}
             {selected.type === 'QR' && <label className="block text-sm">Cạnh QR (mm)<InputNumber aria-label="Cạnh QR (mm)" className="mt-1 w-full" min={20} max={60} value={selected.width} onChange={(value) => value != null && patch({ width: value, height: value })} /></label>}
             {selected.type === 'TEXT' && <>
               <label className="block text-sm">Nội dung<Select aria-label="Nội dung vùng chữ" className="mt-1 w-full" value={selected.field} options={TICKET_FIELDS.map((field) => ({ value: field, label: fieldLabels[field] }))} onChange={(field) => patch({ field })} /></label>
@@ -133,7 +133,7 @@ export function TicketDesignEditor({ ticket, design, onChange, disabled = false 
               <div className="grid grid-cols-2 gap-3"><label className="text-sm">Màu chữ<Input aria-label="Màu chữ" type="color" className="mt-1 h-9 p-1" value={selected.color} onChange={(event) => patch({ color: event.target.value })} /></label><label className="text-sm">Cỡ chữ (pt)<InputNumber aria-label="Cỡ chữ (pt)" className="mt-1 w-full" min={4} max={48} step={0.5} value={selected.fontSize} onChange={(value) => value != null && patch({ fontSize: value })} /></label></div>
               <Segmented block value={selected.align} options={[{ value: 'left', label: 'Trái' }, { value: 'center', label: 'Giữa' }, { value: 'right', label: 'Phải' }]} onChange={(align) => patch({ align: align as TicketElement['align'] })} />
               <Checkbox checked={selected.bold} onChange={(event) => patch({ bold: event.target.checked })}>Chữ đậm</Checkbox>
-              <p className="text-xs text-slate-500">Chữ tự xuống dòng và thu nhỏ để vừa vùng đã vẽ. Dữ liệu tự động thay theo từng VĐV.</p>
+              <p className="text-xs text-slate-500">Chữ tự xuống dòng và thu nhỏ để vừa vùng đã vẽ. Dữ liệu tự động thay theo từng người tham gia.</p>
               <Button danger block onClick={() => { change({ version: 1, elements: design.elements.filter((element) => element.id !== selected.id) }); setSelectedId('photo'); }}>Xóa vùng chữ</Button>
             </>}
           </div>}

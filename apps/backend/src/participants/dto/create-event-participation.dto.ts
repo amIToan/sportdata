@@ -1,12 +1,47 @@
 import { EventParticipationRole, RegistrationStatus } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDefined, IsEmail, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+
+class ParticipationMediaUploadDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  id: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  token: string;
+}
+
+class ParticipationMediaUploadsDto {
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => ParticipationMediaUploadDto)
+  avatar: ParticipationMediaUploadDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ParticipationMediaUploadDto)
+  cccdFront?: ParticipationMediaUploadDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ParticipationMediaUploadDto)
+  cccdBack?: ParticipationMediaUploadDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ParticipationMediaUploadDto)
+  passport?: ParticipationMediaUploadDto;
+}
 
 export class CreateEventParticipationDto {
   @IsString()
   @MinLength(1)
   eventId: string;
 
-  @IsEnum(EventParticipationRole)
+  @IsIn([EventParticipationRole.REFEREE, EventParticipationRole.TEAM_LEADER, EventParticipationRole.COACH])
   role: EventParticipationRole;
 
   @IsOptional()
@@ -25,7 +60,20 @@ export class CreateEventParticipationDto {
   @MaxLength(30)
   contactPhone?: string;
 
-  @ValidateIf((dto) => dto.role === EventParticipationRole.TEAM_LEADER || dto.federationId !== undefined)
+  @IsIn(['CCCD', 'PASSPORT'])
+  identityType: 'CCCD' | 'PASSPORT';
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  documentNumber: string;
+
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => ParticipationMediaUploadsDto)
+  mediaUploads: ParticipationMediaUploadsDto;
+
+  @ValidateIf((dto) => [EventParticipationRole.TEAM_LEADER, EventParticipationRole.REFEREE].includes(dto.role) || dto.federationId !== undefined)
   @IsString()
   @MinLength(1)
   federationId?: string;

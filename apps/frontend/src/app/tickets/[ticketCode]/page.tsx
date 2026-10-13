@@ -132,7 +132,7 @@ export default function TicketVerificationPage() {
           <Descriptions column={1} colon={false}>
             <Descriptions.Item label="Họ và tên">{ticket.athlete.fullName}</Descriptions.Item>
             <Descriptions.Item label="Vai trò">{ticket.roleLabel}</Descriptions.Item>
-            <Descriptions.Item label="Liên đoàn">{ticket.athlete.federation?.name || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Đơn vị / CLB">{ticket.athlete.federation?.name || '—'}</Descriptions.Item>
             <Descriptions.Item label="Sự kiện">{ticket.event.name}</Descriptions.Item>
           </Descriptions>
         </Card> : <>
