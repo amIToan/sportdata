@@ -195,6 +195,16 @@ async function main() {
     for (const profileStatus of ['COMPLETE', 'INCOMPLETE']) {
       const selected = expected.filter((item) => item.complete === (profileStatus === 'COMPLETE'));
       const result = await list(adminToken, { profileStatus });
+      if (result.total !== selected.length) {
+        const completeDiagnostic = await list(adminToken, { profileStatus: 'COMPLETE' });
+        const completeIds = new Set(completeDiagnostic.items.map((item) => item.id));
+        const resultIds = new Set(result.items.map((item) => item.id));
+        console.error(`Synthetic ${profileStatus} filter diagnostics:`, JSON.stringify(all.items.map((item) => ({
+          name: item.displayName.replace(`${marker} `, ''), expected: expected.find((fixture) => fixture.id === item.id).complete,
+          projected: item.profile.complete, databaseComplete: completeIds.has(item.id), includedInFilter: resultIds.has(item.id),
+          identityType: item.profile.identityType,
+        })), null, 2));
+      }
       checkSummary(result, selected);
       assert.equal(result.items.length, selected.length);
     }
