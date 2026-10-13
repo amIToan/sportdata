@@ -123,12 +123,12 @@ export default function NewsManagementPage() {
       ),
     },
     {
-      title: 'Tổng quan',
+      title: 'Nổi bật',
       key: 'featured',
       width: 112,
       align: 'center',
       render: (_, article) => (
-        <Tooltip title={article.isFeatured ? 'Bỏ khỏi bài viết nổi bật' : 'Ưu tiên trên trang Tổng quan'}>
+        <Tooltip title={article.isFeatured ? 'Bỏ khỏi bài viết nổi bật' : 'Ưu tiên trên trang chủ'}>
           <Button
             type="text"
             shape="circle"
