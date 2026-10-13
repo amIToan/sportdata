@@ -1308,7 +1308,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'email']} label="Email" rules={[{ required: true, message: 'Vui lòng nhập email' }, { type: 'email', message: 'Email không hợp lệ' }]}><Input type="email" placeholder="email@example.com" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'phone']} label="Số điện thoại" rules={[{ required: true, message: 'Vui lòng nhập số điện thoại' }, { min: 8, message: 'Số điện thoại phải có ít nhất 8 ký tự' }]}><Input type="tel" placeholder="0901234567" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'gender']} label="Giới tính" rules={[{ required: true }]}><Select options={[{ value: 'MALE', label: 'Nam' }, { value: 'FEMALE', label: 'Nữ' }, { value: 'MIXED', label: 'Khác / hỗn hợp' }]} /></Form.Item></Col>
-                <Col xs={24} md={12}><Form.Item name={['athlete', 'birthDate']} label="Ngày sinh" rules={[{ required: true, message: 'Vui lòng chọn ngày sinh' }]}><DatePicker className="w-full" format="DD/MM/YYYY" placeholder="Chọn ngày sinh" allowClear /></Form.Item></Col>
+                <Col xs={24} md={12}><Form.Item name={['athlete', 'birthDate']} label="Ngày sinh" rules={[{ required: true, message: 'Vui lòng chọn ngày sinh' }]}><DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" placeholder="Chọn ngày sinh" disabledDate={(date) => date.isAfter(dayjs(), 'day')} allowClear /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'weight']} label="Cân nặng (kg, không bắt buộc)"><InputNumber min={1} max={500} className="w-full" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'height']} label="Chiều cao (cm)"><InputNumber min={1} max={300} className="w-full" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'countryId']} label="Quốc gia" rules={[{ required: true, message: 'Vui lòng chọn quốc gia' }]}><Select showSearch optionFilterProp="label" options={countries.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}` }))} /></Form.Item></Col>
@@ -1546,7 +1546,7 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
             onPressEnter={() => confirm()}
           />
         ) : kind === 'date' ? (
-          <DatePicker
+          <DatePicker needConfirm={false} size="large"
             autoFocus
             allowClear
             className="w-full"
@@ -1849,8 +1849,8 @@ function PaymentTab({ event, canEdit, onRefresh }: EventWorkspaceProps & { canEd
       <Form form={form} layout="vertical" onFinish={save} disabled={!canEdit} className="max-w-4xl">
         <Form.Item name="registrationEnabled" label="Mở cổng đăng ký" valuePropName="checked"><Switch /></Form.Item>
         <div className="grid gap-4 md:grid-cols-2">
-          <Form.Item name="registrationOpenAt" label="Thời gian mở đăng ký"><DatePicker showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian mở đăng ký" /></Form.Item>
-          <Form.Item name="registrationCloseAt" label="Thời gian đóng đăng ký"><DatePicker showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian đóng đăng ký" /></Form.Item>
+          <Form.Item name="registrationOpenAt" label="Thời gian mở đăng ký"><DatePicker needConfirm={false} size="large" showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian mở đăng ký" /></Form.Item>
+          <Form.Item name="registrationCloseAt" label="Thời gian đóng đăng ký"><DatePicker needConfirm={false} size="large" showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian đóng đăng ký" /></Form.Item>
           <Form.Item name="paymentMode" label="Phương thức thanh toán"><Select options={paymentModeOptions} /></Form.Item>
           <Form.Item name="registrationFee" label="Lệ phí mỗi hạng đấu" rules={[{ validator: (_, value) => paymentMode === 'FREE' || Number(value) > 0 ? Promise.resolve() : Promise.reject(new Error('Lệ phí phải lớn hơn 0')) }]}><InputNumber<number> className="w-full" style={{ width: '100%', minWidth: 260 }} min={0} step={10000} precision={0} formatter={(value) => value == null ? '' : new Intl.NumberFormat('vi-VN').format(value)} parser={(value) => Number(String(value || '').replace(/[^0-9]/g, ''))} disabled={!canEdit || paymentMode === 'FREE'} addonAfter={Form.useWatch('registrationCurrency', form) || 'VND'} /></Form.Item>
           <Form.Item name="registrationCurrency" label="Đơn vị tiền tệ"><Select options={[{ value: 'VND', label: 'VND' }]} /></Form.Item>

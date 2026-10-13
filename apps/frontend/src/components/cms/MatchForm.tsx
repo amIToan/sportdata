@@ -202,7 +202,7 @@ export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { 
           </>}
           <ControlledField name="matchDate" control={control} label="Thời gian thi đấu" error={errors.matchDate?.message} required>
             {(field) => (
-              <DatePicker
+              <DatePicker needConfirm={false}
                 showTime={{ format: 'HH:mm' }}
                 format="DD/MM/YYYY HH:mm"
                 size="large"

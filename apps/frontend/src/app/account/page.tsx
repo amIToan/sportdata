@@ -607,7 +607,7 @@ export default function ParticipantAccountPage() {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="birthDate" label="Ngày sinh" rules={[{ required: true, message: 'Vui lòng chọn ngày sinh' }]}>
-                <DatePicker className="w-full" format="DD/MM/YYYY" disabledDate={(date) => date.isAfter(dayjs(), 'day')} />
+                <DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" disabledDate={(date) => date.isAfter(dayjs(), 'day')} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>

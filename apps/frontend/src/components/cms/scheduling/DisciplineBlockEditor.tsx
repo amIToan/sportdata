@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Card, Checkbox, Input, InputNumber, Select, Space, Tag } from 'antd';
+import dayjs from 'dayjs';
+import { Button, Card, Checkbox, DatePicker, Input, InputNumber, Select, Space, Tag } from 'antd';
 import { ScheduleConfig, groupLabel, stageLabel, uid } from './schedule-ui';
 
 export function DisciplineBlockEditor({ config, input, planId, onChange, onOpen, onWeight }: {
@@ -24,7 +25,10 @@ export function DisciplineBlockEditor({ config, input, planId, onChange, onOpen,
     windows: [{ ...(first || { id: uid(), localDate: '', fopId: '', startLocalTime: '09:00', endLocalTime: '18:00', enabled: true, breaks: [] }), ...changes }, ...config.windows.slice(1)] });
   return <div className="space-y-4">
     <label className="block">Tên lịch<Input aria-label="Tên lịch" value={config.name} maxLength={200} onChange={(event) => onChange({ ...config, name: event.target.value })} /></label>
-    <Space wrap><label>Ngày bắt đầu<Select aria-label="Ngày bắt đầu" className="block min-w-48" placeholder="Chọn ngày" value={first?.localDate || undefined} options={input.days.map((day: string) => ({ value: day, label: day }))} onChange={(localDate) => changeFirst({ localDate })} /></label>
+    <Space wrap><label>Ngày bắt đầu<DatePicker needConfirm={false} size="large" aria-label="Ngày bắt đầu" className="w-full min-w-48" placeholder="Chọn ngày" format="DD/MM/YYYY" allowClear={false}
+      value={first?.localDate ? dayjs(first.localDate) : null} defaultPickerValue={input.days[0] ? dayjs(input.days[0]) : undefined}
+      disabledDate={(date) => !input.days.includes(date.format('YYYY-MM-DD'))}
+      onChange={(date) => changeFirst({ localDate: date?.format('YYYY-MM-DD') || '' })} /></label>
       <label>Thảm bắt đầu<Select aria-label="Thảm bắt đầu" className="block min-w-48" placeholder="Chọn thảm" value={first?.fopId || undefined} options={input.fops.map((fop: any) => ({ value: fop.id, label: fop.name }))} onChange={(fopId) => changeFirst({ fopId })} /></label></Space>
     {(config.windows.length > 1 || config.earliestStarts.length > 0) && <p className="text-sm text-amber-700">Đổi ngày/thảm đầu sẽ tính lại phần lịch phía sau. Các ngày và mốc đã nhập được giữ để bạn kiểm tra ở bước 2.</p>}
     <div className="flex flex-wrap gap-2"><Select aria-label="Thêm nội dung thi đấu" mode="multiple" placeholder="Chọn một hoặc nhiều nội dung" className="min-w-64 flex-1" value={selection} onChange={setSelection}

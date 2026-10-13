@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Card, Empty, Select, Space, Tag } from 'antd';
+import dayjs from 'dayjs';
+import { Button, Card, DatePicker, Empty, Space, Tag } from 'antd';
 import { localTime } from './schedule-ui';
 
 export function ScheduleOverviewGrid({ overview, canEdit, onCreate, onOpen }: {
@@ -29,8 +30,9 @@ export function ScheduleOverviewGrid({ overview, canEdit, onCreate, onOpen }: {
           {overview.fops.map((fop: any) => <td key={fop.id} className="border-l border-slate-200">{cell(date, fop)}</td>)}
         </tr>)}</tbody></table>
     </div>
-    <div className="space-y-4 md:hidden"><Select aria-label="Ngày xem lịch" className="w-full" value={day || overview.days[0]}
-      options={overview.days.map((date: string) => ({ value: date, label: date.split('-').reverse().join('/') }))} onChange={setDay} />
+    <div className="space-y-4 md:hidden"><DatePicker needConfirm={false} size="large" aria-label="Ngày xem lịch" className="w-full" format="DD/MM/YYYY" allowClear={false}
+      value={day || overview.days[0] ? dayjs(day || overview.days[0]) : null}
+      disabledDate={(date) => !overview.days.includes(date.format('YYYY-MM-DD'))} onChange={(date) => setDay(date?.format('YYYY-MM-DD'))} />
       {overview.fops.map((fop: any) => <Card key={fop.id} title={fop.name}>{cell(day || overview.days[0], fop)}</Card>)}
     </div>
   </>;

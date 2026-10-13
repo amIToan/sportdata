@@ -489,7 +489,7 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
           </ControlledField>
           <ControlledField name="startDate" control={control} label="Bắt đầu" error={errors.startDate?.message} required>
             {(field) => (
-              <DatePicker
+              <DatePicker needConfirm={false}
                 showTime={{ format: 'HH:mm' }}
                 format="DD/MM/YYYY HH:mm"
                 size="large"
@@ -511,7 +511,7 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
           </ControlledField>
           <ControlledField name="endDate" control={control} label="Kết thúc" error={errors.endDate?.message} required>
             {(field) => (
-              <DatePicker
+              <DatePicker needConfirm={false}
                 showTime={{ format: 'HH:mm' }}
                 format="DD/MM/YYYY HH:mm"
                 size="large"
@@ -551,7 +551,7 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
                 </Col>
                 <ControlledField name="registrationOpenAt" control={control} label="Mở đăng ký" error={errors.registrationOpenAt?.message} required={registrationEnabled}>
                   {(field) => (
-                    <DatePicker
+                    <DatePicker needConfirm={false}
                       showTime={{ format: 'HH:mm' }}
                       format="DD/MM/YYYY HH:mm"
                       size="large"
@@ -564,7 +564,7 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
                 </ControlledField>
                 <ControlledField name="registrationCloseAt" control={control} label="Đóng đăng ký" error={errors.registrationCloseAt?.message} required={registrationEnabled}>
                   {(field) => (
-                    <DatePicker
+                    <DatePicker needConfirm={false}
                       showTime={{ format: 'HH:mm' }}
                       format="DD/MM/YYYY HH:mm"
                       size="large"

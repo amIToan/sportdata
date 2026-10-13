@@ -406,7 +406,7 @@ export function AthleteForm({ athleteId, initialData, returnTo = '/cms/athletes'
           </ControlledField>
           <ControlledField name="birthDate" control={control} label="Ngày sinh" error={errors.birthDate?.message}>
             {(field) => (
-              <DatePicker
+              <DatePicker needConfirm={false}
                 format="DD/MM/YYYY"
                 size="large"
                 className="w-full"
