@@ -4,6 +4,7 @@ import { ToastNotice } from '@/components/ToastNotice';
 
 import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import { DateTimeFields } from '@/components/DateTimeFields';
 import { parseLocalTime } from '@/lib/date-time';
 import useSWR from 'swr';
 import {
@@ -11,7 +12,6 @@ import {
   Button,
   Card,
   Col,
-  DatePicker,
   Descriptions,
   Form,
   Input,
@@ -119,7 +119,8 @@ export default function OperationsPage() {
       venueId: venues[0]?.id,
       sportId: sports[0]?.id,
       name: sports[0]?.name ? `Ca sáng · ${sports[0].name}` : 'Ca sáng',
-      window: [start, start.hour(12)],
+      startTime: start,
+      endTime: start.hour(12),
     });
     setSessionOpen(true);
   };
@@ -216,9 +217,8 @@ export default function OperationsPage() {
       const values = await sessionForm.validateFields();
       await api.post(`/scheduling/events/${eventId}/sessions`, {
         ...values,
-        startTime: values.window[0].toISOString(),
-        endTime: values.window[1].toISOString(),
-        window: undefined,
+        startTime: values.startTime.toISOString(),
+        endTime: values.endTime.toISOString(),
       });
       message.success('Đã tạo ca thi đấu');
       setSessionOpen(false);
@@ -522,7 +522,20 @@ export default function OperationsPage() {
       </Modal>
 
       <Modal title="Thêm ca thi đấu" open={sessionOpen} onCancel={() => setSessionOpen(false)} onOk={saveSession} destroyOnHidden>
-        <Form form={sessionForm} layout="vertical"><Form.Item name="name" label="Tên ca" rules={[{ required: true }]}><Input placeholder="Ca sáng · Boxing" /></Form.Item><Form.Item name="venueId" label="Địa điểm" rules={[{ required: true }]}><Select options={venues.map((venue: any) => ({ value: venue.id, label: venue.name }))} /></Form.Item><Form.Item name="sportId" label="Bộ môn"><Select allowClear options={sports.map((sport: any) => ({ value: sport.id, label: sport.name }))} /></Form.Item><Form.Item name="window" label="Bắt đầu – kết thúc" rules={[{ required: true }]}><DatePicker.RangePicker needConfirm={false} size="large" showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" /></Form.Item></Form>
+        <Form form={sessionForm} layout="vertical"><Form.Item name="name" label="Tên ca" rules={[{ required: true }]}><Input placeholder="Ca sáng · Boxing" /></Form.Item><Form.Item name="venueId" label="Địa điểm" rules={[{ required: true }]}><Select options={venues.map((venue: any) => ({ value: venue.id, label: venue.name }))} /></Form.Item><Form.Item name="sportId" label="Bộ môn"><Select allowClear options={sports.map((sport: any) => ({ value: sport.id, label: sport.name }))} /></Form.Item>
+          <Form.Item name="startTime" label="Bắt đầu" rules={[{ required: true, message: 'Vui lòng chọn thời gian bắt đầu' }]}>
+            <DateTimeFields label="Bắt đầu ca thi đấu" />
+          </Form.Item>
+          <Form.Item name="endTime" label="Kết thúc" dependencies={['startTime']} rules={[
+            { required: true, message: 'Vui lòng chọn thời gian kết thúc' },
+            ({ getFieldValue }) => ({
+              validator: (_, value) => !value || !getFieldValue('startTime') || value.isAfter(getFieldValue('startTime'))
+                ? Promise.resolve()
+                : Promise.reject(new Error('Thời gian kết thúc phải sau thời gian bắt đầu')),
+            }),
+          ]}>
+            <DateTimeFields label="Kết thúc ca thi đấu" />
+          </Form.Item></Form>
       </Modal>
 
       <Modal title={`Tạo khung giờ · ${slotSession?.name || ''}`} open={Boolean(slotSession)} onCancel={() => setSlotSession(undefined)} onOk={generateSlots} destroyOnHidden>

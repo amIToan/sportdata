@@ -9,7 +9,8 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import dayjs from 'dayjs';
-import { Button, Card, Checkbox, Col, DatePicker, Form, Image, Input, InputNumber, Row, Select, Upload } from 'antd';
+import { DateTimeFields } from '@/components/DateTimeFields';
+import { Button, Card, Checkbox, Col, Form, Image, Input, InputNumber, Row, Select, Upload } from 'antd';
 import { ImagePlus, Trash2 } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
 import { FormActions } from './AthleteForm';
@@ -489,12 +490,9 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
           </ControlledField>
           <ControlledField name="startDate" control={control} label="Bắt đầu" error={errors.startDate?.message} required>
             {(field) => (
-              <DatePicker needConfirm={false}
-                showTime={{ format: 'HH:mm' }}
-                format="DD/MM/YYYY HH:mm"
+              <DateTimeFields label="Bắt đầu"
                 size="large"
                 className="w-full"
-                placeholder="Chọn thời gian bắt đầu"
                 value={field.value ? dayjs(field.value) : null}
                 onBlur={field.onBlur}
                 onChange={(value) => {
@@ -511,12 +509,9 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
           </ControlledField>
           <ControlledField name="endDate" control={control} label="Kết thúc" error={errors.endDate?.message} required>
             {(field) => (
-              <DatePicker needConfirm={false}
-                showTime={{ format: 'HH:mm' }}
-                format="DD/MM/YYYY HH:mm"
+              <DateTimeFields label="Kết thúc"
                 size="large"
                 className="w-full"
-                placeholder="Chọn thời gian kết thúc"
                 value={field.value ? dayjs(field.value) : null}
                 onBlur={field.onBlur}
                 onChange={(value) => field.onChange(value ? value.format('YYYY-MM-DDTHH:mm') : '')}
@@ -551,9 +546,7 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
                 </Col>
                 <ControlledField name="registrationOpenAt" control={control} label="Mở đăng ký" error={errors.registrationOpenAt?.message} required={registrationEnabled}>
                   {(field) => (
-                    <DatePicker needConfirm={false}
-                      showTime={{ format: 'HH:mm' }}
-                      format="DD/MM/YYYY HH:mm"
+                    <DateTimeFields label="Mở đăng ký"
                       size="large"
                       className="w-full"
                       disabled={!registrationEnabled}
@@ -564,9 +557,7 @@ export function EventForm({ eventId, initialData, returnTo = '/cms/events' }: { 
                 </ControlledField>
                 <ControlledField name="registrationCloseAt" control={control} label="Đóng đăng ký" error={errors.registrationCloseAt?.message} required={registrationEnabled}>
                   {(field) => (
-                    <DatePicker needConfirm={false}
-                      showTime={{ format: 'HH:mm' }}
-                      format="DD/MM/YYYY HH:mm"
+                    <DateTimeFields label="Đóng đăng ký"
                       size="large"
                       className="w-full"
                       disabled={!registrationEnabled}

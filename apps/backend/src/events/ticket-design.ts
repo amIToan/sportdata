@@ -3,7 +3,7 @@
 export const TICKET_WIDTH = 105;
 export const TICKET_HEIGHT = 148;
 export const POINTS_PER_MM = 72 / 25.4;
-export const TICKET_FIELDS = ['CUSTOM', 'ATHLETE_NAME', 'FEDERATION', 'COUNTRY', 'EVENT_NAME', 'CATEGORY', 'SPORT', 'EVENT_DATE', 'EVENT_END_DATE', 'EVENT_DATE_RANGE', 'LOCATION', 'TICKET_CODE', 'STATUS'] as const;
+export const TICKET_FIELDS = ['CUSTOM', 'ROLE', 'ATHLETE_NAME', 'FEDERATION', 'COUNTRY', 'EVENT_NAME', 'CATEGORY', 'SPORT', 'EVENT_DATE', 'EVENT_END_DATE', 'EVENT_DATE_RANGE', 'LOCATION', 'TICKET_CODE', 'STATUS'] as const;
 export type TicketField = typeof TICKET_FIELDS[number];
 export type TicketElement = {
   id: string;

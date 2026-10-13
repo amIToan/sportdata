@@ -6,6 +6,7 @@ import { imageUrl } from '@/lib/image-url';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
+import { DateTimeFields } from '@/components/DateTimeFields';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import useSWR, { useSWRConfig } from 'swr';
@@ -1849,8 +1850,8 @@ function PaymentTab({ event, canEdit, onRefresh }: EventWorkspaceProps & { canEd
       <Form form={form} layout="vertical" onFinish={save} disabled={!canEdit} className="max-w-4xl">
         <Form.Item name="registrationEnabled" label="Mở cổng đăng ký" valuePropName="checked"><Switch /></Form.Item>
         <div className="grid gap-4 md:grid-cols-2">
-          <Form.Item name="registrationOpenAt" label="Thời gian mở đăng ký"><DatePicker needConfirm={false} size="large" showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian mở đăng ký" /></Form.Item>
-          <Form.Item name="registrationCloseAt" label="Thời gian đóng đăng ký"><DatePicker needConfirm={false} size="large" showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian đóng đăng ký" /></Form.Item>
+          <Form.Item name="registrationOpenAt" label="Thời gian mở đăng ký"><DateTimeFields label="Thời gian mở đăng ký" /></Form.Item>
+          <Form.Item name="registrationCloseAt" label="Thời gian đóng đăng ký"><DateTimeFields label="Thời gian đóng đăng ký" /></Form.Item>
           <Form.Item name="paymentMode" label="Phương thức thanh toán"><Select options={paymentModeOptions} /></Form.Item>
           <Form.Item name="registrationFee" label="Lệ phí mỗi hạng đấu" rules={[{ validator: (_, value) => paymentMode === 'FREE' || Number(value) > 0 ? Promise.resolve() : Promise.reject(new Error('Lệ phí phải lớn hơn 0')) }]}><InputNumber<number> className="w-full" style={{ width: '100%', minWidth: 260 }} min={0} step={10000} precision={0} formatter={(value) => value == null ? '' : new Intl.NumberFormat('vi-VN').format(value)} parser={(value) => Number(String(value || '').replace(/[^0-9]/g, ''))} disabled={!canEdit || paymentMode === 'FREE'} addonAfter={Form.useWatch('registrationCurrency', form) || 'VND'} /></Form.Item>
           <Form.Item name="registrationCurrency" label="Đơn vị tiền tệ"><Select options={[{ value: 'VND', label: 'VND' }]} /></Form.Item>

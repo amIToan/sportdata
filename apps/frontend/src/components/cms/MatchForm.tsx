@@ -7,7 +7,8 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import dayjs from 'dayjs';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, Row, Select, Tag } from 'antd';
+import { DateTimeFields } from '@/components/DateTimeFields';
+import { Alert, Button, Card, Col, Form, Input, Row, Select, Tag } from 'antd';
 import { api, fetcher } from '@/lib/api';
 import { FormActions } from './AthleteForm';
 import { RemoteAthleteSelect } from './RemoteAthleteSelect';
@@ -202,12 +203,9 @@ export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { 
           </>}
           <ControlledField name="matchDate" control={control} label="Thời gian thi đấu" error={errors.matchDate?.message} required>
             {(field) => (
-              <DatePicker needConfirm={false}
-                showTime={{ format: 'HH:mm' }}
-                format="DD/MM/YYYY HH:mm"
+              <DateTimeFields label="Thời gian thi đấu"
                 size="large"
                 className="w-full"
-                placeholder="Chọn thời gian thi đấu"
                 value={field.value ? dayjs(field.value) : null}
                 onBlur={field.onBlur}
                 onChange={(value) => field.onChange(value ? value.format('YYYY-MM-DDTHH:mm') : '')}
