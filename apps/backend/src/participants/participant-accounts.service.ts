@@ -24,11 +24,11 @@ const completeParticipationWhere: Prisma.EventParticipationWhereInput = {
   AND: [
     { media: { some: mediaWhere(AthleteMediaType.AVATAR) } },
     { OR: [
-      { identityType: 'CCCD', AND: [
+      { identityType: { equals: 'CCCD', not: null }, AND: [
         { media: { some: mediaWhere(AthleteMediaType.CCCD_FRONT) } },
         { media: { some: mediaWhere(AthleteMediaType.CCCD_BACK) } },
       ] },
-      { identityType: 'PASSPORT', media: { some: mediaWhere(AthleteMediaType.PASSPORT) } },
+      { identityType: { equals: 'PASSPORT', not: null }, media: { some: mediaWhere(AthleteMediaType.PASSPORT) } },
       { AND: [
         { OR: [{ identityType: null }, { identityType: { notIn: ['CCCD', 'PASSPORT'] } }] },
         { OR: [
@@ -53,13 +53,15 @@ const missingPassportIdentity: Prisma.AthleteWhereInput = { OR: [
   { identity: { is: { OR: [{ passportEncrypted: null }, { passportEncrypted: '' }] } } },
 ] };
 
+// Nullable comparisons need explicit presence guards: NOT(complete) must remain a
+// boolean in PostgreSQL so legacy accounts cannot disappear from both filters.
 const completeProfileWhere: Prisma.ParticipantAccountWhereInput = { OR: [
-  { identityType: 'CCCD', athlete: { is: { AND: [
+  { identityType: { equals: 'CCCD', not: null }, athlete: { is: { AND: [
     { media: { some: mediaWhere(AthleteMediaType.AVATAR) } },
     { media: { some: mediaWhere(AthleteMediaType.CCCD_FRONT) } },
     { media: { some: mediaWhere(AthleteMediaType.CCCD_BACK) } },
   ] } } },
-  { identityType: 'PASSPORT', athlete: { is: { AND: [
+  { identityType: { equals: 'PASSPORT', not: null }, athlete: { is: { AND: [
     { media: { some: mediaWhere(AthleteMediaType.AVATAR) } },
     { media: { some: mediaWhere(AthleteMediaType.PASSPORT) } },
   ] } } },
@@ -68,13 +70,13 @@ const completeProfileWhere: Prisma.ParticipantAccountWhereInput = { OR: [
     { athlete: { is: { AND: [
       { media: { some: mediaWhere(AthleteMediaType.AVATAR) } },
       { OR: [
-        { identity: { is: { cccdEncrypted: { not: '' } } }, AND: [
+        { identity: { is: { AND: [{ cccdEncrypted: { not: null } }, { cccdEncrypted: { not: '' } }] } }, AND: [
           { media: { some: mediaWhere(AthleteMediaType.CCCD_FRONT) } },
           { media: { some: mediaWhere(AthleteMediaType.CCCD_BACK) } },
         ] },
         { AND: [
           missingCccdIdentity,
-          { identity: { is: { passportEncrypted: { not: '' } } } },
+          { identity: { is: { AND: [{ passportEncrypted: { not: null } }, { passportEncrypted: { not: '' } }] } } },
           { media: { some: mediaWhere(AthleteMediaType.PASSPORT) } },
         ] },
         { AND: [missingCccdIdentity, missingPassportIdentity, { OR: [

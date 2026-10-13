@@ -171,6 +171,8 @@ async function main() {
     await addParticipation(unknownStaff, null, await files(fullTypes('CCCD'), 'unknown-staff'));
     const noNumber = await addAccount('N Athlete No Number', 'ATHLETE', true, { identityType: 'CCCD', verificationStatus: 'PENDING' });
     await addAthlete(noNumber, await files(fullTypes('CCCD'), 'no-number'));
+    const encryptedPassportWrong = await addAccount('O Encrypted Passport Wrong Files', 'ATHLETE', false);
+    await addAthlete(encryptedPassportWrong, await files(fullTypes('CCCD'), 'passport-wrong-files'), identityKeys(encryptedPassportWrong.displayName, 'PASSPORT').keys);
 
     const all = await list(adminToken);
     if (all.summary.complete !== expected.filter((item) => item.complete).length) {

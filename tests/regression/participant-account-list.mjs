@@ -61,6 +61,7 @@ function matches(record, where = {}) {
       if ('has' in expected) return (value || []).includes(expected.has);
       return Object.entries(expected).every(([operator, argument]) => {
         if (operator === 'mode') return true;
+        if (operator === 'equals') return value === argument;
         if (operator === 'not') return value !== null && value !== argument;
         if (operator === 'notIn') return value !== null && !argument.includes(value);
         if (operator === 'in') return argument.includes(value);
