@@ -10,6 +10,7 @@ type AccountMediaType = 'AVATAR' | 'CCCD_FRONT' | 'CCCD_BACK' | 'PASSPORT';
 type AccountMedia = {
   type: AccountMediaType;
   mimeType: string;
+  revision?: string;
   verificationStatus?: 'PENDING' | 'VERIFIED' | 'REJECTED' | null;
 };
 
@@ -48,6 +49,7 @@ export function accountStatusLabel(status: SportDataAccount['verificationStatus'
 function useAccountMedia(accountId: string, media?: AccountMedia, variant: 'avatar' | 'preview' = 'preview') {
   const mediaType = media?.type;
   const fallbackMimeType = media?.mimeType;
+  const revision = media?.revision;
   const [resource, setResource] = useState<{ url: string; mimeType: string }>();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -61,7 +63,7 @@ function useAccountMedia(accountId: string, media?: AccountMedia, variant: 'avat
     setFailed(false);
     void api.get(`/participant-auth/admin/accounts/${accountId}/media/${mediaType}`, {
       responseType: 'blob',
-      params: { variant },
+      params: { variant, v: revision },
       signal: controller.signal,
     }).then((response) => {
       if (!active) return;
@@ -81,7 +83,7 @@ function useAccountMedia(accountId: string, media?: AccountMedia, variant: 'avat
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [accountId, mediaType, fallbackMimeType, variant, attempt]);
+  }, [accountId, mediaType, fallbackMimeType, revision, variant, attempt]);
 
   return { resource, failed, retry: () => setAttempt((current) => current + 1), markFailed: () => setFailed(true) };
 }

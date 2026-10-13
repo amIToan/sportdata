@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AccountVerificationStatus, AthleteMediaType, Prisma, SportDataAccountType } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { AthleteIdentityService } from '../athletes/athlete-identity.service';
@@ -185,6 +186,7 @@ export class ParticipantAccountsService {
         ...(documentNumber ? { documentNumber } : {}),
         media: (source?.media || []).filter((media) => selectedTypes.includes(media.type) && usableAccountMedia(media)).map((media) => ({
           type: media.type, mimeType: media.mimeType, verificationStatus: media.verificationStatus,
+          revision: createHash('sha256').update(media.storageKey!).digest('hex').slice(0, 16),
           mediaUrl: `/participant-auth/admin/accounts/${account.id}/media/${media.type}`,
         })),
       },
