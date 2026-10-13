@@ -49,30 +49,33 @@ const records = [
 ];
 
 // Model Prisma relation and nullable scalar semantics to test SQL filter/projection agreement.
+const sqlAnd = (values) => values.includes(false) ? false : values.includes(null) ? null : true;
+const sqlOr = (values) => values.includes(true) ? true : values.includes(null) ? null : false;
+const sqlNot = (value) => value === null ? null : !value;
 function matches(record, where = {}) {
-  return Object.entries(where).every(([key, expected]) => {
-    if (key === 'AND') return (Array.isArray(expected) ? expected : [expected]).every((condition) => matches(record, condition));
-    if (key === 'OR') return expected.some((condition) => matches(record, condition));
-    if (key === 'NOT') return !(Array.isArray(expected) ? expected : [expected]).some((condition) => matches(record, condition));
+  return sqlAnd(Object.entries(where).map(([key, expected]) => {
+    if (key === 'AND') return sqlAnd((Array.isArray(expected) ? expected : [expected]).map((condition) => matches(record, condition)));
+    if (key === 'OR') return sqlOr(expected.map((condition) => matches(record, condition)));
+    if (key === 'NOT') return sqlAnd((Array.isArray(expected) ? expected : [expected]).map((condition) => sqlNot(matches(record, condition))));
     const value = record?.[key];
     if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
-      if ('is' in expected) return expected.is === null ? value === null : value !== null && matches(value, expected.is);
-      if ('some' in expected) return (value || []).some((item) => matches(item, expected.some));
+      if ('is' in expected) return expected.is === null ? value === null : value !== null && matches(value, expected.is) === true;
+      if ('some' in expected) return (value || []).some((item) => matches(item, expected.some) === true);
       if ('has' in expected) return (value || []).includes(expected.has);
-      return Object.entries(expected).every(([operator, argument]) => {
+      return sqlAnd(Object.entries(expected).map(([operator, argument]) => {
         if (operator === 'mode') return true;
-        if (operator === 'equals') return value === argument;
-        if (operator === 'not') return value !== null && value !== argument;
-        if (operator === 'notIn') return value !== null && !argument.includes(value);
+        if (operator === 'equals') return argument === null ? value === null : value === null ? null : value === argument;
+        if (operator === 'not') return argument === null ? value !== null : value === null ? null : value !== argument;
+        if (operator === 'notIn') return value === null ? null : !argument.includes(value);
         if (operator === 'in') return argument.includes(value);
         if (operator === 'gt') return value > argument;
         if (operator === 'lte') return value <= argument;
         if (operator === 'contains') return value !== null && String(value).toLocaleLowerCase().includes(argument.toLocaleLowerCase());
         throw new Error(`Unhandled scalar operator ${operator}`);
-      });
+      }));
     }
-    return value === expected;
-  });
+    return expected === null ? value === null : value === null ? null : value === expected;
+  }));
 }
 function sorted(rows, orderBy = []) {
   return [...rows].sort((left, right) => {
