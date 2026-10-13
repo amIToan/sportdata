@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import { Alert, Button, Card, Checkbox, Empty, Input, Modal, Space, Steps, Table } from 'antd';
+import { Alert, Button, Card, Checkbox, ConfigProvider, Empty, Modal, Space, Steps, Table, TimePicker } from 'antd';
 import { api, fetcher, getAuthUser } from '@/lib/api';
+import { parseLocalTime } from '@/lib/date-time';
 import { ScheduleOverviewGrid } from './ScheduleOverviewGrid';
 import { DisciplineBlockEditor } from './DisciplineBlockEditor';
 import { ScheduleWindowsEditor } from './ScheduleWindowsEditor';
@@ -223,11 +224,12 @@ function ScheduleWizard({ eventId, canEdit, canScore, initial, storageKey, onClo
     </> : <>
       <Steps current={step} items={[{ title: 'Chọn nội dung & giờ bắt đầu' }, { title: 'Tùy chỉnh (nếu cần)' }, { title: 'Lịch tự động' }]} />
       {!canEdit && <Alert type="info" title="Bạn đang ở chế độ chỉ xem." />}
+      <ConfigProvider componentDisabled={!canEdit || Boolean(busy)}>
       <fieldset disabled={!canEdit || Boolean(busy)} className="min-w-0">
         {step === 0 && <div className="space-y-5"><DisciplineBlockEditor config={config} input={input} planId={plan?.id} onChange={change} onOpen={(id) => { if (!dirty) onOpen(id); else setError('Lưu nháp trước khi mở lịch khác để giữ thay đổi.'); }}
           onWeight={(id, weightKind) => void refreshSetting(() => api.patch(`/categories/${id}`, { weightKind }))} />
-          <Card size="small" title="Sắp xếp tự động"><label>Giờ bắt đầu<Input aria-label="Giờ bắt đầu tự động" type="time" className="!w-40 !block" value={first?.startLocalTime || ''}
-            onChange={(event) => change({ ...config, windows: config.windows.map((window, index) => index === 0 ? { ...window, startLocalTime: event.target.value } : window) })} /></label>
+          <Card size="small" title="Sắp xếp tự động"><label>Giờ bắt đầu<TimePicker needConfirm={false} size="large" aria-label="Giờ bắt đầu tự động" className="w-full !block" format="HH:mm" value={parseLocalTime(first?.startLocalTime)}
+            onChange={(value) => change({ ...config, windows: config.windows.map((window, index) => index === 0 ? { ...window, startLocalTime: value?.format('HH:mm') || '' } : window) })} /></label>
             <p className="mt-3">Hệ thống tự chia giờ cho toàn bộ trận đã chọn theo vòng đấu, hạng cân và quy định nghỉ của giải, đồng thời tránh lịch đang có trên thảm.</p>
             {nextEnabled && <p className="mt-2 text-sm text-slate-500">{customWindows ? 'Dùng các ngày/thảm và mốc giờ đã lưu: ' : 'Hết giờ sẽ tự chuyển sang ngày tiếp theo của giải, trên cùng thảm: '}
               {availableWindows.map((window) => `${window.localDate} (${window.startLocalTime || '…'}–${window.endLocalTime})`).join(', ')}. Có thể đổi trong phần tùy chỉnh.</p>}
@@ -236,6 +238,7 @@ function ScheduleWizard({ eventId, canEdit, canScore, initial, storageKey, onClo
         {step === 2 && (proposal ? <MultiDaySchedulePreview proposal={proposal} config={config} canEdit={canEdit} canScore={false} focusDay={initial.day} onChange={change} />
           : <Alert type="info" title="Bản xem trước cần được tính lại" description="Cấu hình vừa thay đổi. Tính lại toàn bộ lịch để xem ảnh hưởng trên mọi ngày." action={<Button disabled={Boolean(busy)} onClick={() => void preview()}>Tính lại lịch</Button>} />)}
       </fieldset>
+      </ConfigProvider>
       <Space wrap><Button disabled={Boolean(busy) || !past.length} onClick={() => undo()}>Hoàn tác</Button><Button disabled={Boolean(busy) || !future.length} onClick={() => undo(true)}>Làm lại</Button></Space>
       {canEdit && <div className="flex flex-wrap justify-between gap-3 border-t pt-4"><Space><Button disabled={step === 0 || Boolean(busy)} onClick={() => setStep(step - 1)}>Quay lại</Button>
         <Button loading={busy === 'save'} disabled={Boolean(busy)} onClick={() => void save()}>Lưu nháp</Button></Space><Space>

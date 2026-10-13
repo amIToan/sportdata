@@ -12,6 +12,9 @@ import { EventParticipationsTable } from '@/components/cms/EventParticipationsTa
 
 type Registration = {
   id: string;
+  competitionEntry?: { status: string } | null;
+  isPairPayer?: boolean;
+  team?: { members: { athlete: { id: string; fullName: string } }[]; registrations: { status: string; paymentStatus: string }[] } | null;
   ticketCode: string;
   status: string;
   paymentStatus: string;
@@ -155,7 +158,12 @@ export default function CmsRegistrationsPage() {
               title: 'Hạng đấu',
               key: 'category',
               width: 220,
-              render: (_, item) => <span>{item.category.sport?.name} · {item.category.name}</span>,
+              render: (_, item) => <div>{item.category.sport?.name} · {item.category.name}{item.team && <div className="mt-2 rounded-lg bg-sky-50 p-2 text-xs text-sky-900">
+                <strong>{item.team.members.map((member) => member.athlete.fullName).join(' / ')}</strong>
+                <div>{item.isPairPayer ? 'Người khai báo · chịu lệ phí' : 'Đồng đội · không thu thêm phí'}</div>
+                <Tag className="mt-1" color={item.competitionEntry?.status === 'VERIFIED' ? 'green' : 'orange'}>
+                  {item.competitionEntry?.status === 'VERIFIED' ? 'Cặp đã xác nhận' : 'Cặp chưa đủ điều kiện'}
+                </Tag></div>}</div>,
             },
             {
               title: 'Giấy tờ',

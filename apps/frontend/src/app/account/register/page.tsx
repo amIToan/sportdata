@@ -1,5 +1,7 @@
 'use client';
 
+import dayjs from 'dayjs';
+
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -106,7 +108,7 @@ export default function ParticipantRegisterPage() {
             </Col>
             <Col xs={24} md={8}>
               <Form.Item name="birthDate" label="Ngày sinh" rules={[{ required: true }]}>
-                <DatePicker size="large" className="w-full" format="DD/MM/YYYY" />
+                <DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" disabledDate={(date) => date.isAfter(dayjs(), 'day')} />
               </Form.Item>
             </Col>
             <Col xs={24} md={8}>

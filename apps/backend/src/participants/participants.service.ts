@@ -118,6 +118,7 @@ type GuestRegistrationPayload = {
   contactPhone?: string;
   organizationName?: string;
   athletes?: GuestAthleteInput[];
+  pairs?: Array<{ categoryId: string; athleteIndex: number; partnerIndex: number }>;
 };
 
 @Injectable()
@@ -784,15 +785,21 @@ export class ParticipantsService {
       where: { athleteId_type: { athleteId, type } },
     });
     if (!media) throw new NotFoundException('Chưa có giấy tờ này');
-    return this.prisma.athleteMedia.update({
-      where: { athleteId_type: { athleteId, type } },
-      data: {
-        verificationStatus: status,
-        verificationNote: note?.trim() || null,
-        verifiedAt: status === DocumentVerificationStatus.VERIFIED ? new Date() : null,
-        verifiedBy: status === DocumentVerificationStatus.VERIFIED ? verifiedBy : null,
-      },
-      select: mediaSelect,
+    return this.prisma.$transaction(async (transaction) => {
+      const updated = await transaction.athleteMedia.update({
+        where: { athleteId_type: { athleteId, type } },
+        data: {
+          verificationStatus: status,
+          verificationNote: note?.trim() || null,
+          verifiedAt: status === DocumentVerificationStatus.VERIFIED ? new Date() : null,
+          verifiedBy: status === DocumentVerificationStatus.VERIFIED ? verifiedBy : null,
+        },
+        select: mediaSelect,
+      });
+      const registrations = await transaction.eventRegistration.findMany({ where: { athleteId, teamId: { not: null } }, include: { athlete: true } });
+      for (const row of registrations) await this.syncCompetitionEntry(transaction, { eventId: row.eventId,
+        categoryId: row.categoryId, athleteId, countryId: row.athlete.countryId, confirmed: row.status === RegistrationStatus.CONFIRMED });
+      return updated;
     });
   }
 
@@ -920,7 +927,7 @@ export class ParticipantsService {
     if (!athletes.length) throw new BadRequestException('Danh sách đăng ký chưa có vận động viên');
     if (athletes.length > 30) throw new BadRequestException('Mỗi lần chỉ đăng ký tối đa 30 vận động viên');
 
-    const submissionType = federationAccount || athletes.length > 1 || payload.type === RegistrationSubmissionType.GROUP
+    const submissionType = federationAccount || payload.type === RegistrationSubmissionType.GROUP
       ? RegistrationSubmissionType.GROUP
       : RegistrationSubmissionType.INDIVIDUAL;
     const organizationName = federationAccount?.federation?.name || payload.organizationName?.trim() || null;
@@ -966,6 +973,29 @@ export class ParticipantsService {
     const federationMap = new Map(federations.map((federation) => [federation.id, federation]));
     const allowedFederations = new Set(event.participatingFederations.map((item) => item.id));
     const categoryMap = new Map(event.categories.map((category) => [category.id, category]));
+    const pairs = payload.pairs || [];
+    if (!Array.isArray(pairs) || pairs.length > athletes.length * event.categories.length) {
+      throw new BadRequestException('Danh sách cặp thi đấu không hợp lệ');
+    }
+    const pairSlots = new Map<string, { categoryId: string; athleteIndex: number; partnerIndex: number }>();
+    for (const pair of pairs) {
+      const category = categoryMap.get(pair?.categoryId);
+      if (!category || !['DUO', 'SHOW'].includes(category.discipline || '')
+        || !Number.isInteger(pair.athleteIndex) || !Number.isInteger(pair.partnerIndex)
+        || !athletes[pair.athleteIndex] || !athletes[pair.partnerIndex] || pair.athleteIndex === pair.partnerIndex) {
+        throw new BadRequestException('DUO/SHOW cần một cặp gồm hai VĐV khác nhau');
+      }
+      for (const index of [pair.athleteIndex, pair.partnerIndex]) {
+        const slot = `${index}:${registrationDisciplineKey(category)}`;
+        if (pairSlots.has(slot)) throw new BadRequestException('Một VĐV chỉ được đăng ký một cặp trong mỗi nội dung');
+        pairSlots.set(slot, pair);
+      }
+      const first = athletes[pair.athleteIndex], second = athletes[pair.partnerIndex];
+      if (first.countryId !== second.countryId) throw new BadRequestException('Hai VĐV trong cặp phải cùng quốc gia');
+      if (category.gender === Gender.MIXED && first.gender === second.gender) {
+        throw new BadRequestException('Hạng đôi nam nữ cần một VĐV nam và một VĐV nữ');
+      }
+    }
     const fileMap = new Map(files.map((file) => [file.fieldname, file]));
     const mediaReferences = athletes.flatMap((athlete) => Object.values(athlete.mediaUploads || {}))
       .filter((reference): reference is GuestMediaUploadReference => Boolean(reference?.id));
@@ -1027,12 +1057,19 @@ export class ParticipantsService {
       } else if (!event.allowIndependentAthletes) {
         throw new BadRequestException(`Vận động viên ${index + 1}: sự kiện không nhận đăng ký tự do`);
       }
-      const categoryIds = athlete.categoryIds ?? (athlete.categoryId ? [athlete.categoryId] : []);
+      const requestedIds = athlete.categoryIds ?? (athlete.categoryId ? [athlete.categoryId] : []);
+      if (!Array.isArray(requestedIds) || new Set(requestedIds).size !== requestedIds.length) throw new BadRequestException('Danh sách hạng đấu không hợp lệ');
+      const categoryIds = [...new Set([...requestedIds, ...pairs.filter((pair) => pair.athleteIndex === index || pair.partnerIndex === index).map((pair) => pair.categoryId)])];
       if (!Array.isArray(categoryIds) || !categoryIds.length || categoryIds.length > event.categories.length
         || categoryIds.some((id) => typeof id !== 'string' || !categoryMap.has(id))) {
         throw new BadRequestException(`Vận động viên ${index + 1}: hạng đấu không hợp lệ`);
       }
       const categories = categoryIds.map((id) => categoryMap.get(id)!);
+      for (const category of categories) {
+        if (['DUO', 'SHOW'].includes(category.discipline || '') && !pairSlots.has(`${index}:${registrationDisciplineKey(category)}`)) {
+          throw new BadRequestException(`${fullName}: DUO/SHOW cần khai báo đồng đội`);
+        }
+      }
       const disciplineKeys = categories.map(registrationDisciplineKey);
       if (new Set(disciplineKeys).size !== categories.length) {
         throw new BadRequestException(`Vận động viên ${index + 1}: chỉ được chọn một hạng đấu cho mỗi nội dung`);
@@ -1127,6 +1164,9 @@ export class ParticipantsService {
             })
           : [];
         for (const category of item.categories) {
+          if (['DUO', 'SHOW'].includes(category.discipline || '') && existingRegistrations.some((registered) => registrationDisciplineKey(registered.category) === registrationDisciplineKey(category))) {
+            throw new ConflictException(`${item.fullName}: đã đăng ký cặp trong nội dung này`);
+          }
           const conflicting = existingRegistrations.find((registered) => registered.categoryId !== category.id
             && registrationDisciplineKey(registered.category) === registrationDisciplineKey(category));
           if (conflicting) {
@@ -1205,7 +1245,10 @@ export class ParticipantsService {
         }
         const identityVerified = existingMedia ? registrationMediaState(existingMedia, item.identityInput.identityType).verified : autoVerifyIdentity;
         for (const category of newCategories) {
-          const payment = this.registrationPayment(event);
+          const pair = pairSlots.get(`${item.athleteIndex}:${registrationDisciplineKey(category)}`);
+          const payment = pair && pair.partnerIndex === item.athleteIndex
+            ? { feeAmount: 0, paymentStatus: PaymentStatus.NOT_REQUIRED }
+            : this.registrationPayment(event);
           const canConfirmImmediately = identityVerified
             && payment.paymentStatus === PaymentStatus.NOT_REQUIRED;
           const registration = await transaction.eventRegistration.create({
@@ -1222,7 +1265,7 @@ export class ParticipantsService {
               ticketCode: this.ticketCode(),
             },
           });
-          if (canConfirmImmediately) {
+          if (canConfirmImmediately && !pair) {
             await this.syncCompetitionEntry(transaction, {
               eventId: event.id,
               categoryId: category.id,
@@ -1248,6 +1291,24 @@ export class ParticipantsService {
               : null,
           });
         }
+      }
+
+      for (const pair of pairs) {
+        const first = registrations.find((row) => row.athleteIndex === pair.athleteIndex && row.categoryId === pair.categoryId)!;
+        const second = registrations.find((row) => row.athleteIndex === pair.partnerIndex && row.categoryId === pair.categoryId)!;
+        if (first.athleteId === second.athleteId) throw new BadRequestException('Không thể ghép một VĐV với chính mình');
+        const category = categoryMap.get(pair.categoryId)!;
+        const team = await transaction.team.create({ data: {
+          eventId: event.id, sportId: category.sportId, countryId: prepared[pair.athleteIndex].athlete.countryId!,
+          name: `${first.athleteName} / ${second.athleteName} · ${category.name}`,
+          code: `${first.athleteName} / ${second.athleteName}`,
+          gender: category.gender,
+          members: { create: [{ athleteId: first.athleteId, role: 'DECLARANT' }, { athleteId: second.athleteId, role: 'PARTNER' }] },
+        } });
+        await transaction.eventRegistration.update({ where: { id: first.id }, data: { teamId: team.id, isPairPayer: true } });
+        await transaction.eventRegistration.update({ where: { id: second.id }, data: { teamId: team.id, isPairPayer: false } });
+        await this.syncCompetitionEntry(transaction, { eventId: event.id, categoryId: category.id,
+          athleteId: first.athleteId, countryId: team.countryId, confirmed: first.status === RegistrationStatus.CONFIRMED });
       }
 
       if (consumedUploadIds.size) {
@@ -1345,6 +1406,7 @@ export class ParticipantsService {
     const category = event.categories[0];
     if (!category) throw new BadRequestException('Hạng đấu không thuộc sự kiện này');
     this.validateRegistrationWindow(event);
+    if (['DUO', 'SHOW'].includes(category.discipline || '')) throw new BadRequestException('Vui lòng dùng đăng ký theo cặp để khai báo đồng đội DUO/SHOW');
     this.validateAthleteForCategory(profile.athlete, { ...category, ...resolveEventAgeLimits(event, category) }, event.startDate);
 
     const allowedFederations = event.participatingFederations.map((item) => item.id);
@@ -1736,21 +1798,21 @@ export class ParticipantsService {
     const entries = registrations.length
       ? await this.prisma.competitionEntry.findMany({
           where: {
-            athleteId: { in: registrations.map((item) => item.athleteId) },
+            OR: [{ athleteId: { in: registrations.map((item) => item.athleteId) } }, { teamId: { in: registrations.flatMap((item) => item.teamId ? [item.teamId] : []) } }],
             eventId: { in: registrations.map((item) => item.eventId) },
             categoryId: { in: registrations.map((item) => item.categoryId) },
           },
-          select: { id: true, eventId: true, categoryId: true, athleteId: true, seed: true, status: true },
+          select: { id: true, eventId: true, categoryId: true, athleteId: true, teamId: true, seed: true, status: true },
         })
       : [];
     const entriesByRegistration = new Map(entries.map((entry) => [
-      `${entry.eventId}:${entry.categoryId}:${entry.athleteId}`,
+      `${entry.eventId}:${entry.categoryId}:${entry.teamId || entry.athleteId}`,
       entry,
     ]));
     return registrations.map((registration) => ({
       ...registration,
       competitionEntry: entriesByRegistration.get(
-        `${registration.eventId}:${registration.categoryId}:${registration.athleteId}`,
+        `${registration.eventId}:${registration.categoryId}:${registration.teamId || registration.athleteId}`,
       ) || null,
     }));
   }
@@ -1988,6 +2050,7 @@ export class ParticipantsService {
       }
     }
 
+    if (['DUO', 'SHOW'].includes(category.discipline || '')) reasons.push('Vui lòng dùng luồng đăng ký theo cặp DUO/SHOW');
     if (existingAthlete) {
       const existing = await this.prisma.eventRegistration.findMany({
         where: { eventId: event.id, athleteId: existingAthlete.id }, include: { category: true },
@@ -2076,7 +2139,7 @@ export class ParticipantsService {
           throw new ConflictException('Hạng đấu đã có nhánh đấu hoặc lịch thi đấu. Hãy thu hồi nhánh đấu/lịch thi đấu trước khi xóa đăng ký.');
         }
 
-        const entryWhere = { ...competitionWhere, athleteId: registration.athleteId };
+        const entryWhere = { ...competitionWhere, ...(registration.teamId ? { teamId: registration.teamId } : { athleteId: registration.athleteId }) };
         const entries = await transaction.competitionEntry.findMany({ where: entryWhere, select: { id: true } });
         const entryIds = new Set(entries.map((entry) => entry.id));
         const configurations = await transaction.drawPreconfiguration.findMany({ where: competitionWhere });
@@ -2095,8 +2158,19 @@ export class ParticipantsService {
           });
         }
         await transaction.competitionEntry.deleteMany({ where: entryWhere });
-        await transaction.ticketEmailJob.deleteMany({ where: { ticketCode: registration.ticketCode } });
-        await transaction.eventRegistration.delete({ where: { id } });
+        if (registration.teamId) {
+          const pairRows = await transaction.eventRegistration.findMany({ where: { ...competitionWhere, teamId: registration.teamId } });
+          await transaction.ticketEmailJob.deleteMany({ where: { ticketCode: { in: pairRows.map((row) => row.ticketCode) } } });
+          await transaction.eventRegistration.deleteMany({ where: { ...competitionWhere, teamId: registration.teamId } });
+          if (!await transaction.eventRegistration.count({ where: { teamId: registration.teamId } })
+            && !await transaction.competitionEntry.count({ where: { teamId: registration.teamId } })
+            && !await transaction.match.count({ where: { OR: [{ team1Id: registration.teamId }, { team2Id: registration.teamId }] } })) {
+            await transaction.team.delete({ where: { id: registration.teamId } });
+          }
+        } else {
+          await transaction.ticketEmailJob.deleteMany({ where: { ticketCode: registration.ticketCode } });
+          await transaction.eventRegistration.delete({ where: { id } });
+        }
         return { id, success: true };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 });
     } catch (error: any) {
@@ -2127,6 +2201,7 @@ export class ParticipantsService {
           where: { id: categoryId, events: { some: { id: registration.eventId } } },
         });
         if (!category) throw new BadRequestException('Hạng đấu không thuộc sự kiện này');
+        if (registration.teamId || ['DUO', 'SHOW'].includes(category.discipline || '')) throw new BadRequestException('Đăng ký theo cặp cần hủy và khai báo lại cả cặp để đổi hạng đấu');
         if (category.sportId !== registration.category.sportId) {
           throw new BadRequestException('Chỉ có thể đổi nội dung và hạng cân trong cùng môn thể thao');
         }
@@ -2257,7 +2332,7 @@ export class ParticipantsService {
       });
       const email = registration.account?.email || registration.submission?.contactEmail;
       if (status === RegistrationStatus.CONFIRMED && email) {
-        await this.ticketEmailQueue.enqueueTicket(transaction, email, registration.ticketCode);
+        await this.enqueueConfirmedRegistration(transaction, registration, email);
       }
       return transaction.eventRegistration.findUniqueOrThrow({
         where: { id },
@@ -2317,6 +2392,11 @@ export class ParticipantsService {
           data: { status: PaymentTransactionStatus.FAILED, failureReason: normalizedReason },
         });
       }
+      if (registration.teamId) {
+        const athlete = await transaction.athlete.findUniqueOrThrow({ where: { id: registration.athleteId } });
+        await this.syncCompetitionEntry(transaction, { eventId: registration.eventId, categoryId: registration.categoryId,
+          athleteId: registration.athleteId, countryId: athlete.countryId, confirmed: registration.status === RegistrationStatus.CONFIRMED });
+      }
       return transaction.eventRegistration.findUniqueOrThrow({
         where: { id },
         include: this.registrationInclude(),
@@ -2343,6 +2423,10 @@ export class ParticipantsService {
           media: { select: registrationMediaSelect },
         } } },
       });
+      if (registration?.teamId && registration.status === RegistrationStatus.CONFIRMED) {
+        await this.syncCompetitionEntry(transaction, { eventId: registration.eventId, categoryId: registration.categoryId,
+          athleteId: registration.athleteId, countryId: registration.athlete.countryId, confirmed: true });
+      }
       if (!registration || registration.status !== RegistrationStatus.SUBMITTED || registration.paymentStatus !== PaymentStatus.PAID
         || !registrationMediaState(registration.athlete.media).complete
         || !registrationMediaState(registration.athlete.media).verified) return null;
@@ -2361,17 +2445,61 @@ export class ParticipantsService {
       } });
       const email = registration.submission?.contactEmail || registration.athlete.email;
       if (email) {
-        await this.ticketEmailQueue.enqueueTicket(transaction, email, registration.ticketCode);
+        await this.enqueueConfirmedRegistration(transaction, registration, email);
       }
       return { ticketCode: registration.ticketCode, statusChangedAt, email };
     });
     return finalized;
   }
 
+  private async enqueueConfirmedRegistration(
+    transaction: Prisma.TransactionClient,
+    registration: { teamId?: string | null; submissionId?: string | null; ticketCode: string },
+    email: string,
+  ) {
+    if (registration.teamId && registration.submissionId) {
+      const rows = await transaction.eventRegistration.findMany({ where: { submissionId: registration.submissionId } });
+      if (rows.length && rows.every((row) => row.status === RegistrationStatus.CONFIRMED
+        && (row.paymentStatus === PaymentStatus.PAID || row.paymentStatus === PaymentStatus.NOT_REQUIRED))) {
+        const submission = await transaction.registrationSubmission.findUniqueOrThrow({ where: { id: registration.submissionId } });
+        await this.ticketEmailQueue.enqueueSubmission(transaction, email, submission.referenceCode);
+        return;
+      }
+    }
+    await this.ticketEmailQueue.enqueueTicket(transaction, email, registration.ticketCode);
+  }
+
   private async syncCompetitionEntry(
     transaction: Prisma.TransactionClient,
     input: { eventId: string; categoryId: string; athleteId: string; countryId: string; confirmed: boolean },
   ) {
+    const registration = await transaction.eventRegistration.findFirst({
+      where: { eventId: input.eventId, athleteId: input.athleteId, categoryId: input.categoryId },
+    });
+    if (registration?.teamId) {
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${registration.teamId}))`;
+      const rows = await transaction.eventRegistration.findMany({ where: { teamId: registration.teamId, categoryId: input.categoryId },
+        include: { athlete: { include: { media: { select: { type: true, verificationStatus: true } } } } } });
+      const ready = rows.length === 2 && rows.filter((row) => row.isPairPayer).length === 1
+        && rows.every((row) => row.status === RegistrationStatus.CONFIRMED
+          && [PaymentStatus.PAID, PaymentStatus.NOT_REQUIRED].includes(row.paymentStatus as 'PAID' | 'NOT_REQUIRED')
+          && this.identityDocumentState(row.athlete.media).verified);
+      await transaction.competitionEntry.upsert({
+        where: { eventId_categoryId_teamId: { eventId: input.eventId, categoryId: input.categoryId, teamId: registration.teamId } },
+        create: { eventId: input.eventId, categoryId: input.categoryId, teamId: registration.teamId,
+          countryId: input.countryId, type: EntryType.TEAM, status: ready ? EntryStatus.VERIFIED : EntryStatus.WITHDRAWN },
+        update: { status: ready ? EntryStatus.VERIFIED : EntryStatus.WITHDRAWN },
+      });
+      if (ready) for (const row of rows) await transaction.athlete.update({ where: { id: row.athleteId }, data: {
+        events: { connect: { id: input.eventId } }, categories: { connect: { id: input.categoryId } },
+      } });
+      return;
+    }
+    const category = await transaction.category.findUnique({ where: { id: input.categoryId }, select: { discipline: true } });
+    if (['DUO', 'SHOW'].includes(category?.discipline || '')) {
+      if (input.confirmed) throw new BadRequestException('DUO/SHOW cần khai báo đủ cặp thi đấu');
+      return;
+    }
     const compoundKey = {
       eventId_categoryId_athleteId: {
         eventId: input.eventId,
@@ -2451,6 +2579,7 @@ export class ParticipantsService {
           media: { select: mediaSelect, orderBy: { type: 'asc' as const } },
         },
       },
+      team: { include: { members: { include: { athlete: { select: { id: true, fullName: true } } } }, registrations: { select: { id: true, athleteId: true, status: true, paymentStatus: true, isPairPayer: true } } } },
       submission: true,
       paymentTransactions: {
         orderBy: { createdAt: 'desc' as const },

@@ -17,7 +17,7 @@ import { getParticipantToken, participantApi } from '@/lib/participant-auth';
 type EventInfo = {
   id: string; name: string; startDate: string; location?: string | null;
   registrationEnabled: boolean; registrationOpenAt?: string | null; registrationCloseAt?: string | null;
-  categories?: { id: string; name: string; sport?: { name: string } | null }[];
+  categories?: { id: string; name: string; discipline?: string | null; sport?: { name: string } | null }[];
 };
 type Profile = { displayName: string; hasAthleteProfile: boolean; accountTypes: string[] };
 

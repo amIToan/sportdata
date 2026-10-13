@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, DatePicker, Space, Tooltip } from 'antd';
+import { DateTimeFields } from '@/components/DateTimeFields';
+import { Button, Space, Tooltip } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -53,9 +54,9 @@ export function InlineMatchSchedule({ match, canEdit, event, onSaved }: {
   };
 
   if (editing) return <div className="space-y-2 py-1">
-    <DatePicker className="w-full" size="small" aria-label={`Ngày giờ thi đấu trận ${match.matchNumber || match.id}`} value={value} onChange={setValue}
-      showTime={{ format: 'HH:mm' }} format="HH:mm DD/MM/YYYY" allowClear={false} disabled={saving || Boolean(blocked)}
-      defaultPickerValue={dayjs(match.startTime || match.matchDate).tz(zone)} placeholder="Chọn ngày và giờ"
+    <DateTimeFields className="w-full" size="large" label={`Thi đấu trận ${match.matchNumber || match.id}`} value={value} onChange={setValue}
+      allowClear={false} disabled={saving || Boolean(blocked)}
+      defaultPickerValue={dayjs(match.startTime || match.matchDate).tz(zone)}
       disabledDate={(date) => { const key = date.format('YYYY-MM-DD'); return key < dayjs(event.startDate).tz(zone).format('YYYY-MM-DD') || key > dayjs(event.endDate).tz(zone).format('YYYY-MM-DD'); }} />
     <Space size={6}><Button type="primary" size="small" loading={saving} disabled={!value || Boolean(blocked)} onClick={() => void save()}>Lưu</Button><Button size="small" disabled={saving} onClick={() => setEditing(false)}>Hủy</Button></Space>
     <p className="text-xs text-slate-500">Giờ Việt Nam · Giữ thời lượng trận đã xếp</p>

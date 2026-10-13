@@ -6,6 +6,7 @@ import { imageUrl } from '@/lib/image-url';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
+import { DateTimeFields } from '@/components/DateTimeFields';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import useSWR, { useSWRConfig } from 'swr';
@@ -87,6 +88,9 @@ type EventWorkspaceProps = {
 };
 
 type Registration = {
+  teamId?: string | null;
+  isPairPayer?: boolean;
+  team?: { members: { athlete: { id: string; fullName: string } }[]; registrations: { status: string; paymentStatus: string }[] } | null;
   id: string;
   ticketCode: string;
   status: string;
@@ -1019,7 +1023,11 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                 </div>
               ),
             },
-            { title: 'Hạng đấu', ...columnSelectFilter('category', 'Hạng đấu', (event.categories || []).map((category: RegistrationCategory) => ({ value: category.id, label: `${category.sport?.name || ''} · ${category.name}` }))), width: 240, render: (_, item) => renderRegistrationCategory(item) },
+            { title: 'Hạng đấu', ...columnSelectFilter('category', 'Hạng đấu', (event.categories || []).map((category: RegistrationCategory) => ({ value: category.id, label: `${category.sport?.name || ''} · ${category.name}` }))), width: 240, render: (_, item) => <div>{renderRegistrationCategory(item)}{item.team && <div className="mt-2 rounded-lg bg-sky-50 p-2 text-xs text-sky-900">
+              <strong>{item.team.members.map((member) => member.athlete.fullName).join(' / ')}</strong>
+              <div>{item.isPairPayer ? 'Người khai báo · chịu lệ phí' : 'Đồng đội · không thu thêm phí'}</div>
+              <Tag className="mt-1" color={item.competitionEntry?.status === 'VERIFIED' ? 'green' : 'orange'}>{item.competitionEntry?.status === 'VERIFIED' ? 'Cặp đủ điều kiện' : 'Cặp chưa đủ điều kiện'}</Tag>
+            </div>}</div> },
             {
               title: 'Hạt giống',
               ...columnFilter('seed', 'Số hạt giống', 'number'),
@@ -1148,7 +1156,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                       <Popconfirm
                         title="Xóa đăng ký thi đấu?"
                         placement="topRight"
-                        description={<div className="max-w-xs">Xóa đăng ký của <strong>{item.athlete.fullName}</strong> tại <strong>{item.category.name}</strong>, cùng thẻ và lịch sử thanh toán của lượt đăng ký này. Hồ sơ vận động viên vẫn được giữ.</div>}
+                        description={<div className="max-w-xs">{item.team ? 'Xóa đăng ký của cả cặp' : 'Xóa đăng ký của'} <strong>{item.team ? item.team.members.map((member) => member.athlete.fullName).join(' / ') : item.athlete.fullName}</strong> tại <strong>{item.category.name}</strong>, cùng thẻ và lịch sử thanh toán của lượt đăng ký này. Hồ sơ vận động viên vẫn được giữ.</div>}
                         okText="Xóa đăng ký"
                         cancelText="Hủy"
                         okButtonProps={{ danger: true }}
@@ -1301,7 +1309,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'email']} label="Email" rules={[{ required: true, message: 'Vui lòng nhập email' }, { type: 'email', message: 'Email không hợp lệ' }]}><Input type="email" placeholder="email@example.com" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'phone']} label="Số điện thoại" rules={[{ required: true, message: 'Vui lòng nhập số điện thoại' }, { min: 8, message: 'Số điện thoại phải có ít nhất 8 ký tự' }]}><Input type="tel" placeholder="0901234567" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'gender']} label="Giới tính" rules={[{ required: true }]}><Select options={[{ value: 'MALE', label: 'Nam' }, { value: 'FEMALE', label: 'Nữ' }, { value: 'MIXED', label: 'Khác / hỗn hợp' }]} /></Form.Item></Col>
-                <Col xs={24} md={12}><Form.Item name={['athlete', 'birthDate']} label="Ngày sinh" rules={[{ required: true, message: 'Vui lòng chọn ngày sinh' }]}><DatePicker className="w-full" format="DD/MM/YYYY" placeholder="Chọn ngày sinh" allowClear /></Form.Item></Col>
+                <Col xs={24} md={12}><Form.Item name={['athlete', 'birthDate']} label="Ngày sinh" rules={[{ required: true, message: 'Vui lòng chọn ngày sinh' }]}><DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" placeholder="Chọn ngày sinh" disabledDate={(date) => date.isAfter(dayjs(), 'day')} allowClear /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'weight']} label="Cân nặng (kg, không bắt buộc)"><InputNumber min={1} max={500} className="w-full" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'height']} label="Chiều cao (cm)"><InputNumber min={1} max={300} className="w-full" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'countryId']} label="Quốc gia" rules={[{ required: true, message: 'Vui lòng chọn quốc gia' }]}><Select showSearch optionFilterProp="label" options={countries.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}` }))} /></Form.Item></Col>
@@ -1508,6 +1516,8 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
     match.status === 'FINISHED' && match.winnerId && match.winnerId === match[`athlete${side}`]?.id,
   );
   const renderAthlete = (match: any, side: 1 | 2) => {
+    const team = match[`team${side}`];
+    if (team) return <span className={match.winnerTeamId === team.id ? 'font-semibold text-emerald-600' : 'font-semibold'}>{team.members?.map((member: any) => member.athlete.fullName).join(' / ') || team.name}</span>;
     const athlete = match[`athlete${side}`];
     if (!athlete) return 'Chờ xác định';
     const winner = isWinner(match, side);
@@ -1537,7 +1547,7 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
             onPressEnter={() => confirm()}
           />
         ) : kind === 'date' ? (
-          <DatePicker
+          <DatePicker needConfirm={false} size="large"
             autoFocus
             allowClear
             className="w-full"
@@ -1840,8 +1850,8 @@ function PaymentTab({ event, canEdit, onRefresh }: EventWorkspaceProps & { canEd
       <Form form={form} layout="vertical" onFinish={save} disabled={!canEdit} className="max-w-4xl">
         <Form.Item name="registrationEnabled" label="Mở cổng đăng ký" valuePropName="checked"><Switch /></Form.Item>
         <div className="grid gap-4 md:grid-cols-2">
-          <Form.Item name="registrationOpenAt" label="Thời gian mở đăng ký"><DatePicker showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian mở đăng ký" /></Form.Item>
-          <Form.Item name="registrationCloseAt" label="Thời gian đóng đăng ký"><DatePicker showTime={{ format: 'HH:mm' }} format="DD/MM/YYYY HH:mm" className="w-full" placeholder="Chọn thời gian đóng đăng ký" /></Form.Item>
+          <Form.Item name="registrationOpenAt" label="Thời gian mở đăng ký"><DateTimeFields label="Thời gian mở đăng ký" /></Form.Item>
+          <Form.Item name="registrationCloseAt" label="Thời gian đóng đăng ký"><DateTimeFields label="Thời gian đóng đăng ký" /></Form.Item>
           <Form.Item name="paymentMode" label="Phương thức thanh toán"><Select options={paymentModeOptions} /></Form.Item>
           <Form.Item name="registrationFee" label="Lệ phí mỗi hạng đấu" rules={[{ validator: (_, value) => paymentMode === 'FREE' || Number(value) > 0 ? Promise.resolve() : Promise.reject(new Error('Lệ phí phải lớn hơn 0')) }]}><InputNumber<number> className="w-full" style={{ width: '100%', minWidth: 260 }} min={0} step={10000} precision={0} formatter={(value) => value == null ? '' : new Intl.NumberFormat('vi-VN').format(value)} parser={(value) => Number(String(value || '').replace(/[^0-9]/g, ''))} disabled={!canEdit || paymentMode === 'FREE'} addonAfter={Form.useWatch('registrationCurrency', form) || 'VND'} /></Form.Item>
           <Form.Item name="registrationCurrency" label="Đơn vị tiền tệ"><Select options={[{ value: 'VND', label: 'VND' }]} /></Form.Item>
@@ -2011,7 +2021,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
     version: string; canRevert: boolean; drawCount: number; groupCount: number; matchCount: number; reason?: string;
   }>(canOperate && categoryId ? `/matches/event/${event.id}/category/${categoryId}/draw-state` : null, fetcher, { refreshInterval: 5000 });
   const hasDraws = !!drawState && (drawState.drawCount > 0 || drawState.groupCount > 0);
-  const activeEntries = entries.filter((entry) => entry.status === 'VERIFIED' && entry.type === 'INDIVIDUAL' && entry.athlete?.id);
+  const activeEntries = entries.filter((entry) => entry.status === 'VERIFIED' && (entry.type === 'INDIVIDUAL' && entry.athlete?.id || ['DUO', 'SHOW'].includes(category?.discipline) && entry.type === 'TEAM' && entry.team?.members?.length === 2));
   const isRepechage = format === 'REPECHAGE' || format === 'REPECHAGE_ROUND_OF_16';
   const usesRoundRobin = format === 'ROUND_ROBIN' || (isRepechage && activeEntries.length < 6);
   const drawType = format === 'ROUND_ROBIN' ? 'ROUND_ROBIN_POOL' : format === 'DOUBLE' ? 'DOUBLE_ELIMINATION' : isRepechage ? format : 'MAIN_TREE';
@@ -2063,7 +2073,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
     try {
       const currentEntries: any[] = await mutateEntries();
       const athleteIds = (currentEntries || []).filter((entry) => entry.status === 'VERIFIED'
-        && entry.type === 'INDIVIDUAL' && entry.athlete?.id).map((entry) => entry.athlete.id);
+        && (entry.type === 'INDIVIDUAL' && entry.athlete?.id || entry.type === 'TEAM' && entry.team?.members?.length === 2)).map((entry) => entry.athlete?.id || entry.team.id);
       await api.post(`/matches/event/${event.id}/category/${categoryId}/generate-draw`, {
         athleteIds,
         type: drawType,
@@ -2132,7 +2142,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
         {drawStateError && <ToastNotice className="!mt-4" showIcon type="error" message="Không thể kiểm tra trạng thái nhánh đấu. Hãy tải lại trang." />}
       </Card>
       <Card title={`3. Danh sách đầu vào (${activeEntries.length} VĐV)`} loading={isLoading}>
-        {activeEntries.length ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{activeEntries.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-300/15 px-3 py-2"><div className="min-w-0"><strong className="block truncate">{entry.athlete.fullName}</strong><div className="truncate text-xs text-slate-500">{entry.athlete.federation?.name || 'VĐV tự do'}</div></div><div className="w-24"><SeedInput value={entry.seed} disabled={!canOperate} onSave={(value) => void updateSeed(entry, value)} /></div></div>)}</div> : <Empty description="Chưa có lượt đăng ký đã xác nhận cho hạng đấu này." />}
+        {activeEntries.length ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{activeEntries.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-300/15 px-3 py-2"><div className="min-w-0"><strong className="block truncate">{entry.athlete?.fullName || entry.team?.members?.map((member: any) => member.athlete.fullName).join(' / ')}</strong><div className="truncate text-xs text-slate-500">{entry.athlete?.federation?.name || entry.country?.name || 'VĐV tự do'}</div></div><div className="w-24"><SeedInput value={entry.seed} disabled={!canOperate} onSave={(value) => void updateSeed(entry, value)} /></div></div>)}</div> : <Empty description="Chưa có lượt đăng ký đã xác nhận cho hạng đấu này." />}
       </Card>
     </div>
   );

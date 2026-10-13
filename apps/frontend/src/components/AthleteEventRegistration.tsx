@@ -65,6 +65,10 @@ type EventData = {
   categories: Category[];
 };
 type AthleteDraft = {
+  source?: 'NEW' | 'DATABASE';
+  reuseToken?: string;
+  hasAvatar?: boolean;
+  hasIdentity?: boolean;
   documentNumber?: string;
   phone?: string;
   key: string;
@@ -277,12 +281,52 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
   }, [isTeamRegistration, participantProfile]);
 
   const activeAthletes = useMemo(
-    () => mode === 'INDIVIDUAL' ? athletes.slice(0, 1) : athletes,
+    () => {
+      if (mode === 'GROUP') return athletes;
+      const keys = new Set(athletes.slice(0, 1).map((athlete) => athlete.key));
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const athlete of athletes.filter((item) => keys.has(item.key))) for (const entry of athlete.entries) {
+          if (entry.partnerKey && !keys.has(entry.partnerKey)) { keys.add(entry.partnerKey); changed = true; }
+        }
+      }
+      return athletes.filter((athlete) => keys.has(athlete.key));
+    },
     [athletes, mode],
   );
 
   const updateAthlete = (key: string, patch: Partial<AthleteDraft>) => {
     setAthletes((current) => current.map((athlete) => athlete.key === key ? { ...athlete, ...patch } : athlete));
+  };
+
+  const [lookupKey, setLookupKey] = useState<string>();
+  const lookupSavedAthlete = async (athlete: AthleteDraft) => {
+    if (!athlete.documentNumber?.trim()) { toast.error('Nhập số giấy tờ để tìm hồ sơ đã lưu.'); return; }
+    setLookupKey(athlete.key);
+    try {
+      const { data } = await participantApi.post('/participant-auth/identity/lookup', {
+        eventId, identityType: athlete.identityType, documentNumber: athlete.documentNumber,
+        countryId: athlete.countryId, phone: athlete.phone || contactPhone,
+        fullName: athlete.fullName || undefined, birthDate: athlete.birthDate?.format('YYYY-MM-DD'),
+      });
+      if (!data.reuseToken) {
+        toast.error(data.message || 'Chưa tìm thấy hồ sơ. Bạn có thể chuyển sang khai báo mới.');
+        return;
+      }
+      updateAthlete(athlete.key, { ...data.athlete, birthDate: dayjs(data.athlete.birthDate), reuseToken: data.reuseToken });
+      toast.success('Đã chọn hồ sơ VĐV được lưu.');
+    } catch (error) { toast.error(participantError(error, 'Không thể tìm hồ sơ VĐV.')); }
+    finally { setLookupKey(undefined); }
+  };
+  const addPartner = (athlete: AthleteDraft, entryIndex: number, source: 'NEW' | 'DATABASE') => {
+    if (athletes.length >= 30) { toast.error('Mỗi hồ sơ tối đa 30 VĐV.'); return; }
+    const key = `athlete-${nextKey.current++}`;
+    setAthletes((current) => [...current.map((item) => item.key === athlete.key ? { ...item,
+      entries: item.entries.map((entry, index) => index === entryIndex ? { ...entry, partnerKey: key } : entry),
+    } : item), { ...emptyAthlete(key), entries: [], source,
+      countryId: athlete.countryId || defaultCountryId, federationId: athlete.federationId }]);
+    window.setTimeout(() => document.getElementById(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   };
 
   const selectIdentityFile = async (
@@ -383,7 +427,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
       || !athlete.birthDate
       || !athlete.gender
       || !athlete.countryId
-      || !athlete.entries.length
+      || (!athlete.entries.length && !activeAthletes.some((item) => item.entries.some((entry) => entry.partnerKey === athlete.key)))
       || athlete.entries.some((entry) => !entry.categoryId)
     ));
     if (missingIndex >= 0) {
@@ -392,9 +436,21 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
       return;
     }
 
+    const pairs = activeAthletes.flatMap((athlete, athleteIndex) => athlete.entries.flatMap((entry) => {
+      const category = event?.categories.find((item) => item.id === entry.categoryId);
+      return ['DUO', 'SHOW'].includes(category?.discipline || '') ? [{ categoryId: entry.categoryId,
+        athleteIndex, partnerIndex: activeAthletes.findIndex((item) => item.key === entry.partnerKey) }] : [];
+    }));
+    if (pairs.some((pair) => pair.partnerIndex < 0 || pair.partnerIndex === pair.athleteIndex)) {
+      toast.error('Chọn đồng đội cho từng nội dung DUO/SHOW.'); return;
+    }
+    if (activeAthletes.some((athlete) => athlete.source === 'DATABASE' && !athlete.reuseToken)) {
+      toast.error('Vui lòng tìm và xác nhận hồ sơ đồng đội đã lưu.'); return;
+    }
     setSubmitting(true);
     try {
       for (const athlete of activeAthletes) {
+        if (athlete.reuseToken) continue;
         await participantApi.post('/participant-auth/identity/check', {
           fullName: capitalizeRegistrationName(athlete.fullName), birthDate: athlete.birthDate!.format('YYYY-MM-DD'),
           gender: athlete.gender, countryId: athlete.countryId, federationId: athlete.federationId,
@@ -403,8 +459,8 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
         });
       }
       const missingMediaIndex = activeAthletes.findIndex((athlete) => (
-        !athlete.avatar
-        || (athlete.identityType === 'CCCD' ? !athlete.cccdFront || !athlete.cccdBack : !athlete.passport)
+        (!athlete.avatar && !athlete.hasAvatar)
+        || (!athlete.hasIdentity && (athlete.identityType === 'CCCD' ? !athlete.cccdFront || !athlete.cccdBack : !athlete.passport))
       ));
       if (missingMediaIndex >= 0) {
         const message = `${activeAthletes.length === 1 ? 'Vận động viên' : `Vận động viên ${missingMediaIndex + 1}`} chưa đủ ảnh đại diện hoặc giấy tờ định danh.`;
@@ -428,6 +484,8 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
           athlete.passport ? uploadMedia(athlete.passport, 'PASSPORT') : undefined,
         ]);
         athletesWithUploads.push({
+          reuseToken: athlete.reuseToken,
+          profileConfirmed: Boolean(athlete.reuseToken),
           fullName: capitalizeRegistrationName(athlete.fullName),
           documentNumber: athlete.documentNumber,
           phone: athlete.phone || undefined,
@@ -454,6 +512,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
         contactPhone,
         organizationName: mode === 'GROUP' ? capitalizeRegistrationName(organizationName) : undefined,
         athletes: athletesWithUploads,
+        pairs,
       });
       const payableRegistration = response.data.registrations.length === 1
         ? response.data.registrations[0]
@@ -646,7 +705,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
           value={mode}
           onChange={(value) => setMode(value as RegistrationMode)}
           options={[
-            { value: 'INDIVIDUAL', label: 'Một vận động viên', icon: <FileImage className="h-4 w-4" /> },
+            { value: 'INDIVIDUAL', label: 'Cá nhân / cặp thi đấu', icon: <FileImage className="h-4 w-4" /> },
             { value: 'GROUP', label: 'Danh sách đội / CLB', icon: <Users className="h-4 w-4" /> },
           ]}
         />
@@ -667,26 +726,39 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
           return (
             <Card
               key={athlete.key}
+              id={athlete.key}
               title={activeAthletes.length === 1 ? 'Vận động viên' : `Vận động viên ${index + 1}`}
               extra={mode === 'GROUP' && activeAthletes.length > 1
                 ? <Button danger type="text" icon={<Trash2 className="h-4 w-4" />} onClick={() => setAthletes((current) => current.filter((item) => item.key !== athlete.key))}>Xóa</Button>
                 : undefined}
             >
+              <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                <div className="mb-3 font-semibold text-sky-900">{index === 0 ? 'Hồ sơ VĐV đăng ký' : 'Hồ sơ đồng đội / VĐV'}</div>
+                <Segmented value={athlete.source || 'NEW'} options={[{ value: 'NEW', label: 'Khai báo mới' }, { value: 'DATABASE', label: 'Hồ sơ đã lưu' }]}
+                  onChange={(value) => updateAthlete(athlete.key, { source: value as 'NEW' | 'DATABASE', reuseToken: undefined, hasAvatar: false, hasIdentity: false })} />
+                {athlete.source === 'DATABASE' && <p className="mb-0 mt-3 text-sm text-sky-800">Nhập số giấy tờ và SĐT đã dùng trước đây, hoặc họ tên cùng ngày sinh, rồi tìm hồ sơ. Chọn hồ sơ sẽ sử dụng lại thông tin và giấy tờ đã lưu.</p>}
+              </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <div><label className="mb-2 block text-sm font-semibold">Loại giấy tờ *</label><Select className="w-full" size="large" value={athlete.identityType} onChange={(value) => updateAthlete(athlete.key, { identityType: value, documentNumber: '', identityOcr: undefined })} options={[{ value: 'CCCD', label: 'CCCD' }, { value: 'PASSPORT', label: 'Hộ chiếu' }]} /></div>
                 <div className="lg:col-span-2"><label className="mb-2 block text-sm font-semibold">Số {athlete.identityType === 'CCCD' ? 'CCCD' : 'hộ chiếu'} *</label><Input size="large" maxLength={30} value={athlete.documentNumber} placeholder={athlete.identityType === 'CCCD' ? '12 chữ số theo CCCD' : 'Số hộ chiếu theo giấy tờ'} onChange={(event) => updateAthlete(athlete.key, { documentNumber: event.target.value })} /></div>
                 <div className="lg:col-span-2"><label className="mb-2 block text-sm font-semibold">Họ và tên theo giấy tờ *</label><Input size="large" autoCapitalize="words" value={athlete.fullName} onChange={(event) => updateAthlete(athlete.key, { fullName: event.target.value })} onBlur={(event) => updateAthlete(athlete.key, { fullName: capitalizeRegistrationName(event.target.value) })} /></div>
-                <div><label className="mb-2 block text-sm font-semibold">Ngày sinh *</label><DatePicker className="w-full" size="large" format="DD/MM/YYYY" value={athlete.birthDate} disabledDate={(date) => date.isAfter(dayjs(), 'day')} onChange={(value) => updateAthlete(athlete.key, { birthDate: value })} /></div>
+                <div><label className="mb-2 block text-sm font-semibold">Ngày sinh *</label><DatePicker needConfirm={false} className="w-full" size="large" format="DD/MM/YYYY" value={athlete.birthDate} disabledDate={(date) => date.isAfter(dayjs(), 'day')} onChange={(value) => updateAthlete(athlete.key, { birthDate: value })} /></div>
                 <div><label className="mb-2 block text-sm font-semibold">Số điện thoại VĐV</label><Input size="large" type="tel" maxLength={30} value={athlete.phone} placeholder="Để trống nếu dùng số liên hệ" onChange={(event) => updateAthlete(athlete.key, { phone: event.target.value })} /></div>
                 <div><label className="mb-2 block text-sm font-semibold">Giới tính *</label><Select className="w-full" size="large" value={athlete.gender} onChange={(value) => updateAthlete(athlete.key, { gender: value })} options={[{ value: 'MALE', label: 'Nam' }, { value: 'FEMALE', label: 'Nữ' }]} /></div>
                 <div><label className="mb-2 block text-sm font-semibold">Quốc gia *</label><Select disabled={isTeamRegistration} showSearch optionFilterProp="label" className="w-full" size="large" value={athlete.countryId} onChange={(value) => updateAthlete(athlete.key, { countryId: value, federationId: undefined })} options={countries.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}` }))} /></div>
                 <div><label className="mb-2 block text-sm font-semibold">Đơn vị / CLB</label><Select allowClear showSearch optionFilterProp="label" disabled={isTeamRegistration || !athlete.countryId} className="w-full" size="large" value={athlete.federationId} onChange={(value) => updateAthlete(athlete.key, { federationId: value })} placeholder="Để trống nếu đăng ký tự do" options={availableFederations.map((item) => ({ value: item.id, label: item.name }))} /></div>
               </div>
 
-              <RegistrationDisciplines categories={event.categories || []} entries={athlete.entries} existingRegistrations={[]}
+              {athlete.source === 'DATABASE' && <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button type="primary" loading={lookupKey === athlete.key} onClick={() => void lookupSavedAthlete(athlete)}>Tìm và chọn hồ sơ đã lưu</Button>
+                {athlete.reuseToken && <Tag color="green">Đã chọn: {athlete.fullName}</Tag>}
+              </div>}
+              {!athlete.entries.length && <p className="mt-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Đồng đội tham gia nội dung do VĐV khai báo ở trên. Chỉ thêm nội dung dưới đây nếu đăng ký thi đấu thêm.</p>}
+              <RegistrationDisciplines declarantName={athlete.fullName} partners={athletes.filter((item) => item.key !== athlete.key).map((item) => ({ key: item.key, name: item.fullName || `VĐV ${athletes.indexOf(item) + 1}` }))}
+                onAddPartner={(entryIndex, source) => addPartner(athlete, entryIndex, source)} categories={event.categories || []} entries={athlete.entries} existingRegistrations={[]}
                 onChange={(entries) => updateAthlete(athlete.key, { entries })} />
 
-              <div className="mt-6 border-t border-white/10 pt-6">
+              {athlete.reuseToken && athlete.hasAvatar && athlete.hasIdentity ? <p className="mt-5 text-sm text-emerald-700">Ảnh và giấy tờ sẽ được lấy từ hồ sơ đã lưu.</p> : <div className="mt-6 border-t border-white/10 pt-6">
                 <h3 className="mb-4 font-bold">Ảnh và giấy tờ xác minh</h3>
                 <div className="grid gap-5 md:grid-cols-2">
                   <DocumentPicker label="Ảnh đại diện" required facingMode="user" allowPdf={false} file={athlete.avatar} onChange={(file) => updateAthlete(athlete.key, { avatar: file })} />
@@ -700,7 +772,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
                     <DocumentPicker label="Hộ chiếu" required file={athlete.passport} reading={ocrReadingKey === athlete.key} onChange={(file) => void selectIdentityFile(athlete.key, file, 'passport', 'PASSPORT')} />
                   )}
                 </div>
-              </div>
+              </div>}
             </Card>
           );
         })}
@@ -714,7 +786,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
             : { countryId: defaultCountryId }),
         }])}>Thêm vận động viên</Button>
       )}
-      <p className="mt-6 text-sm text-slate-500">Lệ phí được tính riêng cho từng nội dung thi đấu. Mỗi nội dung có thanh toán và thẻ riêng sau khi giấy tờ và lệ phí được xác nhận.</p>
+      <p className="mt-6 text-sm text-slate-500">Lệ phí tính theo nội dung của người khai báo. Với DUO/SHOW, người khai báo đóng phí; đồng đội được ghép vào cặp không đóng thêm. Mỗi VĐV có thẻ cá nhân khi hồ sơ được duyệt.</p>
       <div className="mt-6 flex flex-wrap justify-end gap-3">
         <Link href={`/events/${eventId}`}><Button size="large">Hủy</Button></Link>
         <Button type="primary" size="large" loading={submitting}

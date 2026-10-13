@@ -149,6 +149,7 @@ export class CompetitionsService {
       },
     });
     if (!category) throw new NotFoundException('Hạng mục không thuộc sự kiện này');
+    if (['DUO', 'SHOW'].includes(category.discipline || '') && dto.type !== EntryType.TEAM) throw new BadRequestException('DUO/SHOW chỉ nhận cặp thi đấu gồm hai VĐV');
 
     let countryId: string;
     if (dto.athleteId) {
@@ -159,8 +160,13 @@ export class CompetitionsService {
     } else {
       const team = await this.prisma.team.findFirst({
         where: { id: dto.teamId, eventId, sportId: category.sportId },
+        include: { members: { include: { athlete: true } } },
       });
       if (!team) throw new BadRequestException('Đội không thuộc sự kiện hoặc bộ môn này');
+      if (['DUO', 'SHOW'].includes(category.discipline || '')) {
+        if (team.members.length !== 2) throw new BadRequestException('DUO/SHOW cần đúng hai thành viên');
+        for (const member of team.members) assertAthleteEligibility(member.athlete, { ...category, ...resolveEventAgeLimits(category.events[0], category) }, category.events[0].startDate);
+      }
       if (category.gender !== 'MIXED' && team.gender && team.gender !== category.gender) {
         throw new BadRequestException('Giới tính của đội không đáp ứng điều kiện hạng mục');
       }
@@ -291,11 +297,8 @@ export class CompetitionsService {
       where: { eventId_categoryId_drawType: { eventId, categoryId, drawType: DrawType.ROUND_ROBIN_POOL } },
     });
     if (configuration) {
-      if (entries.some((entry) => !entry.athleteId || entry.teamId)) {
-        throw new BadRequestException('Cấu hình cặp vòng tròn chỉ áp dụng cho VĐV cá nhân');
-      }
       const result = await this.matches.generateDraw(eventId, categoryId, {
-        type: DrawType.ROUND_ROBIN_POOL, athleteIds: entries.map((entry) => entry.athleteId!),
+        type: DrawType.ROUND_ROBIN_POOL, athleteIds: entries.map((entry) => (entry.teamId || entry.athleteId)!),
         groupCount: dto.groupCount, name: dto.namePrefix,
       }, actorUserId);
       const groups = await this.prisma.roundRobinGroup.findMany({ where: { eventId, categoryId }, include: { _count: { select: { members: true } } } });

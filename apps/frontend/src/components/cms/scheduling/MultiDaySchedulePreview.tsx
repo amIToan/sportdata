@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import dayjs from 'dayjs';
+import { parseLocalTime } from '@/lib/date-time';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Alert, Button, Collapse, Drawer, Input, InputNumber, Select, Space, Tabs, Tag } from 'antd';
+import { Alert, Button, Collapse, DatePicker, Drawer, Input, InputNumber, Space, Tabs, Tag, TimePicker } from 'antd';
 import { ScheduleConfig, clearMatchStart, localDateTime, localDay, localISO, localTime, stageLabel, updateMatchStart } from './schedule-ui';
 import { withCmsReturnTo } from '@/lib/cms-navigation';
 
@@ -95,14 +97,17 @@ export function ContinueFromMatchDrawer({ match, config, onClose, onChange }: { 
   const initial = (match.pin ? pin?.startTime : marker?.notBefore || pin?.startTime) ?? match.start;
   const [day, setDay] = useState(initial == null ? match.localDate : localDay(initial, config.timezone));
   const [time, setTime] = useState(initial == null ? config.windows.find((window) => window.enabled)?.startLocalTime || '09:00' : localTime(initial, config.timezone));
-  return <Drawer open onClose={onClose} title={match.pin ? 'Cố định giờ trận' : 'Dời từ trận này trở đi'} extra={<Button type="primary" onClick={() => {
+  return <Drawer open onClose={onClose} title={match.pin ? 'Cố định giờ trận' : 'Dời từ trận này trở đi'} extra={<Button type="primary" disabled={!day || !time} onClick={() => {
     const instant = localISO(day, time, config.timezone);
     onChange(updateMatchStart(config, match.matchId, instant, match.pin));
   }}>Tính lại phần sau</Button>}><Space direction="vertical" className="w-full"><p>Mọi ngày phía sau trong cùng lịch sẽ được tính lại. Mã trận và sơ đồ được giữ nguyên.</p>
     <p>Mốc giờ riêng được ưu tiên hơn khoảng chuyển trận mặc định. Trận trước phải kết thúc và VĐV phải đủ thời gian nghỉ.</p>
     {!match.pin && pin && <p>Trận này đang cố định lúc {localDateTime(pin.startTime, config.timezone)}. Dời từ đây sẽ thay mốc cố định đó bằng mốc không bắt đầu trước.</p>}
-    <Select aria-label="Ngày dời trận" className="w-full" value={day} onChange={setDay} options={config.windows.filter((window) => window.enabled).map((window) => ({ value: window.localDate, label: window.localDate }))} />
-    <Input aria-label="Giờ dời trận" type="time" value={time} onChange={(event) => setTime(event.target.value)} />
+    <DatePicker needConfirm={false} size="large" aria-label="Ngày dời trận" className="w-full" format="DD/MM/YYYY" allowClear={false}
+      value={day ? dayjs(day) : null} defaultPickerValue={dayjs(config.windows.find((window) => window.enabled)?.localDate)}
+      disabledDate={(date) => !config.windows.some((window) => window.enabled && window.localDate === date.format('YYYY-MM-DD'))}
+      onChange={(date) => setDay(date?.format('YYYY-MM-DD'))} />
+    <TimePicker needConfirm={false} size="large" aria-label="Giờ dời trận" className="w-full" format="HH:mm" value={parseLocalTime(time)} onChange={(value) => setTime(value?.format('HH:mm') || '')} />
     <Button onClick={() => onChange(clearMatchStart(config, match.matchId))}>Bỏ mốc giờ của trận này</Button>
   </Space></Drawer>;
 }

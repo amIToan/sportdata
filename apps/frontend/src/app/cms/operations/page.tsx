@@ -4,13 +4,14 @@ import { ToastNotice } from '@/components/ToastNotice';
 
 import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import { DateTimeFields } from '@/components/DateTimeFields';
+import { parseLocalTime } from '@/lib/date-time';
 import useSWR from 'swr';
 import {
   App as AntApp,
   Button,
   Card,
   Col,
-  DatePicker,
   Descriptions,
   Form,
   Input,
@@ -118,7 +119,8 @@ export default function OperationsPage() {
       venueId: venues[0]?.id,
       sportId: sports[0]?.id,
       name: sports[0]?.name ? `Ca sáng · ${sports[0].name}` : 'Ca sáng',
-      window: [start, start.hour(12)],
+      startTime: start,
+      endTime: start.hour(12),
     });
     setSessionOpen(true);
   };
@@ -130,10 +132,10 @@ export default function OperationsPage() {
       matchDurationMinutes: rule?.matchDurationMinutes ?? 10,
       turnaroundMinutes: rule?.turnaroundMinutes ?? 5,
       minRestMinutes: rule?.minRestMinutes ?? 60,
-      earliestStart: dayjs(rule?.earliestStart || '08:00', 'HH:mm'),
-      latestEnd: dayjs(rule?.latestEnd || '22:00', 'HH:mm'),
-      preferredStart: rule?.preferredStart ? dayjs(rule.preferredStart, 'HH:mm') : undefined,
-      preferredEnd: rule?.preferredEnd ? dayjs(rule.preferredEnd, 'HH:mm') : undefined,
+      earliestStart: parseLocalTime(rule?.earliestStart || '08:00'),
+      latestEnd: parseLocalTime(rule?.latestEnd || '22:00'),
+      preferredStart: parseLocalTime(rule?.preferredStart),
+      preferredEnd: parseLocalTime(rule?.preferredEnd),
       outdoor: rule?.outdoor ?? false,
     });
   };
@@ -215,9 +217,8 @@ export default function OperationsPage() {
       const values = await sessionForm.validateFields();
       await api.post(`/scheduling/events/${eventId}/sessions`, {
         ...values,
-        startTime: values.window[0].toISOString(),
-        endTime: values.window[1].toISOString(),
-        window: undefined,
+        startTime: values.startTime.toISOString(),
+        endTime: values.endTime.toISOString(),
       });
       message.success('Đã tạo ca thi đấu');
       setSessionOpen(false);
@@ -521,7 +522,20 @@ export default function OperationsPage() {
       </Modal>
 
       <Modal title="Thêm ca thi đấu" open={sessionOpen} onCancel={() => setSessionOpen(false)} onOk={saveSession} destroyOnHidden>
-        <Form form={sessionForm} layout="vertical"><Form.Item name="name" label="Tên ca" rules={[{ required: true }]}><Input placeholder="Ca sáng · Boxing" /></Form.Item><Form.Item name="venueId" label="Địa điểm" rules={[{ required: true }]}><Select options={venues.map((venue: any) => ({ value: venue.id, label: venue.name }))} /></Form.Item><Form.Item name="sportId" label="Bộ môn"><Select allowClear options={sports.map((sport: any) => ({ value: sport.id, label: sport.name }))} /></Form.Item><Form.Item name="window" label="Bắt đầu – kết thúc" rules={[{ required: true }]}><DatePicker.RangePicker showTime format="DD/MM/YYYY HH:mm" className="w-full" /></Form.Item></Form>
+        <Form form={sessionForm} layout="vertical"><Form.Item name="name" label="Tên ca" rules={[{ required: true }]}><Input placeholder="Ca sáng · Boxing" /></Form.Item><Form.Item name="venueId" label="Địa điểm" rules={[{ required: true }]}><Select options={venues.map((venue: any) => ({ value: venue.id, label: venue.name }))} /></Form.Item><Form.Item name="sportId" label="Bộ môn"><Select allowClear options={sports.map((sport: any) => ({ value: sport.id, label: sport.name }))} /></Form.Item>
+          <Form.Item name="startTime" label="Bắt đầu" rules={[{ required: true, message: 'Vui lòng chọn thời gian bắt đầu' }]}>
+            <DateTimeFields label="Bắt đầu ca thi đấu" />
+          </Form.Item>
+          <Form.Item name="endTime" label="Kết thúc" dependencies={['startTime']} rules={[
+            { required: true, message: 'Vui lòng chọn thời gian kết thúc' },
+            ({ getFieldValue }) => ({
+              validator: (_, value) => !value || !getFieldValue('startTime') || value.isAfter(getFieldValue('startTime'))
+                ? Promise.resolve()
+                : Promise.reject(new Error('Thời gian kết thúc phải sau thời gian bắt đầu')),
+            }),
+          ]}>
+            <DateTimeFields label="Kết thúc ca thi đấu" />
+          </Form.Item></Form>
       </Modal>
 
       <Modal title={`Tạo khung giờ · ${slotSession?.name || ''}`} open={Boolean(slotSession)} onCancel={() => setSlotSession(undefined)} onOk={generateSlots} destroyOnHidden>
@@ -529,7 +543,7 @@ export default function OperationsPage() {
       </Modal>
 
       <Modal title="Quy tắc xếp lịch bộ môn" open={ruleOpen} onCancel={() => setRuleOpen(false)} onOk={saveRule} width={720} destroyOnHidden>
-        <Form form={ruleForm} layout="vertical" initialValues={{ matchDurationMinutes: 10, turnaroundMinutes: 5, minRestMinutes: 60, outdoor: false }}><Form.Item name="sportId" label="Bộ môn" rules={[{ required: true }]}><Select onChange={loadRule} options={sports.map((sport: any) => ({ value: sport.id, label: sport.name }))} /></Form.Item><Row gutter={12}><Col span={8}><Form.Item name="matchDurationMinutes" label="Thi đấu (phút)"><InputNumber min={1} className="w-full" /></Form.Item></Col><Col span={8}><Form.Item name="turnaroundMinutes" label="Chuyển sân"><InputNumber min={0} className="w-full" /></Form.Item></Col><Col span={8}><Form.Item name="minRestMinutes" label="Nghỉ tối thiểu"><InputNumber min={0} className="w-full" /></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item name="earliestStart" label="Bắt đầu sớm nhất" initialValue={dayjs('08:00', 'HH:mm')}><TimePicker format="HH:mm" className="w-full" /></Form.Item></Col><Col span={12}><Form.Item name="latestEnd" label="Kết thúc muộn nhất" initialValue={dayjs('22:00', 'HH:mm')}><TimePicker format="HH:mm" className="w-full" /></Form.Item></Col><Col span={12}><Form.Item name="preferredStart" label="Khung giờ vàng từ"><TimePicker format="HH:mm" className="w-full" /></Form.Item></Col><Col span={12}><Form.Item name="preferredEnd" label="Khung giờ vàng đến"><TimePicker format="HH:mm" className="w-full" /></Form.Item></Col></Row><Form.Item name="outdoor" label="Môn ngoài trời" valuePropName="checked"><Switch /></Form.Item></Form>
+        <Form form={ruleForm} layout="vertical" initialValues={{ matchDurationMinutes: 10, turnaroundMinutes: 5, minRestMinutes: 60, outdoor: false }}><Form.Item name="sportId" label="Bộ môn" rules={[{ required: true }]}><Select onChange={loadRule} options={sports.map((sport: any) => ({ value: sport.id, label: sport.name }))} /></Form.Item><Row gutter={12}><Col span={8}><Form.Item name="matchDurationMinutes" label="Thi đấu (phút)"><InputNumber min={1} className="w-full" /></Form.Item></Col><Col span={8}><Form.Item name="turnaroundMinutes" label="Chuyển sân"><InputNumber min={0} className="w-full" /></Form.Item></Col><Col span={8}><Form.Item name="minRestMinutes" label="Nghỉ tối thiểu"><InputNumber min={0} className="w-full" /></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item name="earliestStart" label="Bắt đầu sớm nhất" initialValue={parseLocalTime('08:00')}><TimePicker needConfirm={false} size="large" format="HH:mm" className="w-full" /></Form.Item></Col><Col span={12}><Form.Item name="latestEnd" label="Kết thúc muộn nhất" initialValue={parseLocalTime('22:00')}><TimePicker needConfirm={false} size="large" format="HH:mm" className="w-full" /></Form.Item></Col><Col span={12}><Form.Item name="preferredStart" label="Khung giờ vàng từ"><TimePicker needConfirm={false} size="large" format="HH:mm" className="w-full" /></Form.Item></Col><Col span={12}><Form.Item name="preferredEnd" label="Khung giờ vàng đến"><TimePicker needConfirm={false} size="large" format="HH:mm" className="w-full" /></Form.Item></Col></Row><Form.Item name="outdoor" label="Môn ngoài trời" valuePropName="checked"><Switch /></Form.Item></Form>
       </Modal>
 
       {resultMatch && <ResultWorkflowModal match={resultMatch} role={currentUser?.role} open onClose={() => setResultMatch(undefined)} onChanged={async () => { await Promise.all([mutateMatches(), mutateOverview(), mutateReadiness()]); }} />}

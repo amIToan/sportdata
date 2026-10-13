@@ -72,6 +72,7 @@ const MATCH_INCLUDE = {
       id: true,
       name: true,
       code: true,
+      members: { select: { athlete: { select: { id: true, fullName: true } } } },
       country: { select: { code: true, name: true, flagUrl: true } },
     },
   },
@@ -80,6 +81,7 @@ const MATCH_INCLUDE = {
       id: true,
       name: true,
       code: true,
+      members: { select: { athlete: { select: { id: true, fullName: true } } } },
       country: { select: { code: true, name: true, flagUrl: true } },
     },
   },
@@ -990,12 +992,12 @@ export class MatchesService {
   }
 
   private async loadDrawInput(db: Prisma.TransactionClient | PrismaService, eventId: string, categoryId: string) {
-    const [event, category, entries, fops] = await Promise.all([
+    const [event, category, storedEntries, fops] = await Promise.all([
       db.event.findUnique({ where: { id: eventId }, select: { id: true, startDate: true, endDate: true, ageLimitMode: true, minAge: true, maxAge: true } }),
       db.category.findFirst({ where: { id: categoryId, events: { some: { id: eventId } } } }),
       db.competitionEntry.findMany({
         where: { eventId, categoryId }, orderBy: { id: 'asc' },
-        include: { athlete: { include: {
+        include: { team: { include: { members: { include: { athlete: { include: { country: { select: { code: true, name: true, flagUrl: true } }, federation: { select: { id: true, name: true } } } } } } } }, athlete: { include: {
           country: { select: { code: true, name: true, flagUrl: true } },
           federation: { select: { id: true, name: true } },
         } } },
@@ -1004,11 +1006,34 @@ export class MatchesService {
     ]);
     if (!event) throw new NotFoundException('Không tìm thấy sự kiện');
     if (!category) throw new BadRequestException('Hạng đấu không thuộc sự kiện');
+    const pairCategory = ['DUO', 'SHOW'].includes(category.discipline || '');
+    // The placement algorithm uses a participant ID for either an athlete or a team.
+    // Team IDs are translated back to team foreign keys when persisting matches.
+    const entries = storedEntries.map((entry) => pairCategory && entry.team ? { ...entry,
+      athleteId: entry.teamId,
+      athlete: entry.team.members[0] ? { ...entry.team.members[0].athlete, id: entry.team.id,
+        fullName: entry.team.members.map((member) => member.athlete.fullName).join(' / '),
+        countryId: entry.team.countryId, federationId: entry.team.members[0].athlete.federationId } : null,
+    } : entry);
     // CompetitionEntry records registration for this event/category; legacy
     // athlete links must not exclude verified entries from the draw roster.
     const eligibleEntries = entries.filter((entry) => entry.status === EntryStatus.VERIFIED
-      && entry.type === 'INDIVIDUAL' && entry.athlete);
+      && (pairCategory ? entry.type === 'TEAM' && entry.team?.members.length === 2 : entry.type === 'INDIVIDUAL') && entry.athlete);
     return { event, category, entries, eligibleEntries, fops };
+  }
+
+  private assertDrawEntryEligibility(entry: Awaited<ReturnType<MatchesService['loadDrawInput']>>['entries'][number],
+    input: Awaited<ReturnType<MatchesService['loadDrawInput']>>) {
+    const category = { ...input.category, ...resolveEventAgeLimits(input.event, input.category) };
+    if (['DUO', 'SHOW'].includes(category.discipline || '')) {
+      if (!entry.team || entry.team.members.length !== 2 || new Set(entry.team.members.map((member) => member.athleteId)).size !== 2) {
+        throw new BadRequestException('DUO/SHOW cần đội có đúng hai VĐV khác nhau');
+      }
+      if (category.gender === 'MIXED' && new Set(entry.team.members.map((member) => member.athlete.gender)).size !== 2) {
+        throw new BadRequestException('Hạng đôi nam nữ cần một VĐV nam và một VĐV nữ');
+      }
+      for (const member of entry.team.members) assertAthleteEligibility(member.athlete, category, input.event.startDate);
+    } else assertAthleteEligibility(entry.athlete!, category, input.event.startDate);
   }
 
   private inputVersion(input: Awaited<ReturnType<MatchesService['loadDrawInput']>>, pairs: unknown, options: unknown) {
@@ -1033,7 +1058,7 @@ export class MatchesService {
       for (const id of [pair.entry1Id, pair.entry2Id]) {
         if (!eligible.has(id)) throw new BadRequestException('Cặp đặt trước phải dùng lượt đăng ký đã xác minh đúng sự kiện và hạng đấu');
         const entry = input.eligibleEntries.find((item) => item.id === id)!;
-        assertAthleteEligibility(entry.athlete!, { ...input.category, ...resolveEventAgeLimits(input.event, input.category) }, input.event.startDate);
+        this.assertDrawEntryEligibility(entry, input);
         if (used.has(id)) throw new BadRequestException('VĐV không được xuất hiện trong nhiều cặp hoặc đấu với chính mình');
         used.add(id);
       }
@@ -1244,12 +1269,12 @@ export class MatchesService {
       throw new BadRequestException('Thể thức sinh cây không được hỗ trợ');
     }
     for (const entry of input.eligibleEntries) {
-      assertAthleteEligibility(entry.athlete!, { ...input.category, ...resolveEventAgeLimits(input.event, input.category) }, input.event.startDate);
+      this.assertDrawEntryEligibility(entry, input);
     }
     const ids = new Set(dto.athleteIds);
     if (ids.size !== dto.athleteIds.length || ids.size !== input.eligibleEntries.length
       || input.eligibleEntries.some((entry) => !entry.athleteId || !ids.has(entry.athleteId))) {
-      throw new ConflictException('Danh sách VĐV phải gồm toàn bộ lượt đăng ký cá nhân đã xác minh của hạng đấu. Hãy tải lại');
+      throw new ConflictException('Danh sách phải gồm toàn bộ VĐV hoặc cặp thi đấu đã xác minh của hạng đấu. Hãy tải lại');
     }
     if (ids.size < (type === DrawType.DOUBLE_ELIMINATION ? 4 : 2)) {
       throw new BadRequestException('Không đủ VĐV hợp lệ cho thể thức này');
@@ -1364,11 +1389,13 @@ export class MatchesService {
         await db.roundRobinGroup.create({ data: { id: group.id, eventId, categoryId, name: group.name,
           members: { create: group.members } } });
       }
+      const pairCategory = ['DUO', 'SHOW'].includes(input.category.discipline || '');
       await db.match.createMany({ data: plan.matches.map((match) => ({ ...match,
+        ...(pairCategory ? { team1Id: match.athlete1Id, team2Id: match.athlete2Id, winnerTeamId: match.winnerId, athlete1Id: null, athlete2Id: null, winnerId: null } : {}),
         matchNumber: number++, matchDate: new Date(match.matchDate) })) });
       const groupMatches = plan.matches.filter((match) => match.roundRobinGroupId);
       if (groupMatches.length) await db.matchParticipant.createMany({ data: groupMatches.flatMap((match) =>
-        [match.athlete1Id, match.athlete2Id].map((athleteId, index) => ({ matchId: match.id!, athleteId,
+        [match.athlete1Id, match.athlete2Id].map((athleteId, index) => ({ matchId: match.id!, athleteId: pairCategory ? null : athleteId, teamId: pairCategory ? athleteId : null,
           entryId: input.eligibleEntries.find((entry) => entry.athleteId === athleteId)!.id, position: index + 1 }))) });
       if (config && actorUserId) await db.drawPreconfigurationHistory.create({ data: { configurationId: config.id, actorUserId,
         action: 'GENERATE', revision: config.revision, snapshot: this.json({ inputVersion: config.inputVersion, draws: plan.draws }) } });

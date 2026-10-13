@@ -116,13 +116,13 @@ export function IdentityOcrReviewModal({
         <div className="grid gap-x-5 md:grid-cols-2">
           <Form.Item label="Số giấy tờ" name="documentNumber" rules={[{ required: true, message: 'Vui lòng kiểm tra số giấy tờ' }]}><Input /></Form.Item>
           <Form.Item label="Họ và tên" name="fullName" rules={[{ required: true, message: 'Vui lòng kiểm tra họ tên' }]}><Input /></Form.Item>
-          <Form.Item label="Ngày sinh" name="dateOfBirth"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
+          <Form.Item label="Ngày sinh" name="dateOfBirth"><DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" disabledDate={(date) => date.isAfter(dayjs(), 'day')} /></Form.Item>
           <Form.Item label="Giới tính" name="sex"><Select allowClear options={[{ value: 'Nam', label: 'Nam' }, { value: 'Nữ', label: 'Nữ' }, { value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }]} /></Form.Item>
           <Form.Item label="Quốc tịch" name="nationality"><Input /></Form.Item>
           <Form.Item label="Quê quán / nơi sinh" name="placeOfOrigin"><Input /></Form.Item>
           <Form.Item className="md:col-span-2" label="Nơi thường trú / địa chỉ" name="address"><Input /></Form.Item>
-          <Form.Item label="Ngày cấp" name="issuedAt"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
-          <Form.Item label="Ngày hết hạn" name="expiresAt"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
+          <Form.Item label="Ngày cấp" name="issuedAt"><DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" /></Form.Item>
+          <Form.Item label="Ngày hết hạn" name="expiresAt"><DatePicker needConfirm={false} size="large" className="w-full" format="DD/MM/YYYY" /></Form.Item>
         </div>
         <Form.Item name="applyToProfile" valuePropName="checked" className="!mb-0">
           <Checkbox>{applyLabel}</Checkbox>

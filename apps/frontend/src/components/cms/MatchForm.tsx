@@ -7,11 +7,13 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import dayjs from 'dayjs';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, Row, Select, Tag } from 'antd';
+import { DateTimeFields } from '@/components/DateTimeFields';
+import { Alert, Button, Card, Col, Form, Input, Row, Select, Tag } from 'antd';
 import { api, fetcher } from '@/lib/api';
 import { FormActions } from './AthleteForm';
 import { RemoteAthleteSelect } from './RemoteAthleteSelect';
 import { MatchScoreboardHistory } from './MatchScoreboardHistory';
+import { PairMatchResult } from './PairMatchResult';
 import { MatchResultCorrection } from './MatchResultCorrection';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { MATCH_STATUS_META, RESULT_STATUS_META, WIN_METHOD_LABELS } from '@/lib/vi-labels';
@@ -140,7 +142,8 @@ export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { 
 
   return (
     <Form layout="vertical" requiredMark={false} onFinish={handleSubmit(onSubmit)}>
-      {matchId && (
+      {matchId && (initialData?.team1 || initialData?.team2) && <PairMatchResult matchId={matchId} />}
+      {matchId && !initialData?.team1 && !initialData?.team2 && (
         <Card
           className="cms-surface mb-5"
           title="Kết quả từ bảng điểm"
@@ -185,25 +188,24 @@ export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { 
       <Card className="cms-surface" title="Thông tin trận đấu">
         <Row gutter={[20, 2]}>
           <ControlledField name="eventId" control={control} label="Sự kiện" error={errors.eventId?.message} required>
-            {(field) => <Select size="large" showSearch optionFilterProp="label" className="w-full" placeholder="Chọn sự kiện" value={field.value || undefined} onChange={(value) => { field.onChange(value); setValue('categoryId', ''); setValue('athlete1Id', ''); setValue('athlete2Id', ''); setValue('fopId', ''); }} options={eventOptions} />}
+            {(field) => <Select disabled={Boolean(initialData?.team1Id || initialData?.team2Id)} size="large" showSearch optionFilterProp="label" className="w-full" placeholder="Chọn sự kiện" value={field.value || undefined} onChange={(value) => { field.onChange(value); setValue('categoryId', ''); setValue('athlete1Id', ''); setValue('athlete2Id', ''); setValue('fopId', ''); }} options={eventOptions} />}
           </ControlledField>
           <ControlledField name="categoryId" control={control} label="Hạng mục" error={errors.categoryId?.message} required>
-            {(field) => <Select size="large" showSearch optionFilterProp="label" className="w-full" placeholder="Chọn hạng mục" value={field.value || undefined} onChange={(value) => { field.onChange(value); setValue('athlete1Id', ''); setValue('athlete2Id', ''); }} options={categoryOptions} />}
+            {(field) => <Select disabled={Boolean(initialData?.team1Id || initialData?.team2Id)} size="large" showSearch optionFilterProp="label" className="w-full" placeholder="Chọn hạng mục" value={field.value || undefined} onChange={(value) => { field.onChange(value); setValue('athlete1Id', ''); setValue('athlete2Id', ''); }} options={categoryOptions} />}
           </ControlledField>
+          {!initialData?.team1Id && !initialData?.team2Id && <>
           <ControlledField name="athlete1Id" control={control} label="Vận động viên 1" error={errors.athlete1Id?.message}>
             {(field) => <RemoteAthleteSelect eventId={selectedEventId} categoryId={selectedCategoryId} initialOptions={initialAthletes} placeholder="Chờ xác định" value={field.value || undefined} excludeIds={[selectedAthlete2Id || '']} onChange={(value) => field.onChange(value || '')} />}
           </ControlledField>
           <ControlledField name="athlete2Id" control={control} label="Vận động viên 2" error={errors.athlete2Id?.message}>
             {(field) => <RemoteAthleteSelect eventId={selectedEventId} categoryId={selectedCategoryId} initialOptions={initialAthletes} placeholder="Chờ xác định" value={field.value || undefined} excludeIds={[selectedAthlete1Id || '']} onChange={(value) => field.onChange(value || '')} />}
           </ControlledField>
+          </>}
           <ControlledField name="matchDate" control={control} label="Thời gian thi đấu" error={errors.matchDate?.message} required>
             {(field) => (
-              <DatePicker
-                showTime={{ format: 'HH:mm' }}
-                format="DD/MM/YYYY HH:mm"
+              <DateTimeFields label="Thời gian thi đấu"
                 size="large"
                 className="w-full"
-                placeholder="Chọn thời gian thi đấu"
                 value={field.value ? dayjs(field.value) : null}
                 onBlur={field.onBlur}
                 onChange={(value) => field.onChange(value ? value.format('YYYY-MM-DDTHH:mm') : '')}
