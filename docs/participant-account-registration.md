@@ -12,11 +12,23 @@ When the document matches exactly one existing athlete, registration links that 
 
 When event registration creates an athlete for an account's document, it links the athlete if name and date of birth also match. Accounts without an athlete upload their event documents in the event registration form.
 
+## CMS account directory and required event files
+
+The `/cms/accounts` directory supports keyword search, account type, approval status, unit, activity and profile-completeness filters, sorting and server pagination. `GET /participant-auth/admin/accounts` returns `{ items, total, page, limit, summary }`; summary counts apply to the current filters. Deploy the updated backend and frontend together because the previous endpoint returned an array.
+
+An event participant must have a stored avatar and either both CCCD sides or a passport matching the chosen identity type. An external photo link, an empty media row or a document-verification flag without a stored file does not satisfy this requirement. New registrations and confirmation paths enforce the requirement; existing incomplete account profiles remain visible with missing-file indicators.
+
+CMS reviewers can inspect account photos and documents through authenticated media endpoints. The account directory uses a complete linked athlete or event-participation profile and keeps the document number with that source's files. It never fills missing documents by mixing event registrations. Account approval and document verification remain separate statuses.
+
+CMS registration uploads files before eligibility checks and saves the files in the registration transaction. Failed or expired uploads cannot leave a confirmed registration without its files. Reusing an athlete can supplement a missing CCCD side or avatar, including when retrying a previously registered category.
+
 ## Deployment and verification
 
 Apply `20261010090000_participant_account_identity` with `npm run prisma:deploy` before starting the updated backend. Use the existing valid `SETTINGS_ENCRYPTION_KEY` or `JWT_SECRET` for document encryption.
 
 Run `npm run prisma:generate`, `npm run build`, `npm run lint --workspace=@sportdata/frontend`, and `node tests/integration/participant-account-registration.cjs`. The regression script uses service/database doubles and does not modify a database.
+
+Run `node tests/regression/participant-account-list.mjs` and `node tests/regression/registration-required-media.mjs` after the backend build for filtered account profiles and required registration media. `tests/integration/participant-account-list-live.cjs` verifies the account API against an isolated development backend/database, including PostgreSQL NULL behavior and protected image/PDF access; it creates and removes synthetic fixtures.
 
 Manual checks on a development database:
 

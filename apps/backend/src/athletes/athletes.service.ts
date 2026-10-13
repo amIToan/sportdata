@@ -1,16 +1,23 @@
 import type { ImageVariant } from '../storage/image-variant';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AthleteMediaType, DocumentOcrStatus, DocumentVerificationStatus, Prisma } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateAthleteDto } from './dto/create-athlete.dto';
 import { UpdateAthleteDto } from './dto/update-athlete.dto';
 import { QueryAthletesDto } from './dto/query-athletes.dto';
+import { AthleteDeleteMode, BulkDeleteAthletesDto, PreviewAthleteDeleteDto } from './dto/bulk-delete-athletes.dto';
 import { AthleteIdentityService } from './athlete-identity.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 
+type AthleteDeleteCandidate = { id: string; fullName?: string; updatedAt?: Date };
+type AthleteDeleteFailure = { id: string; fullName?: string; reason: string };
+
 @Injectable()
 export class AthletesService {
+  private readonly logger = new Logger(AthletesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly athleteIdentity: AthleteIdentityService,
@@ -47,6 +54,31 @@ export class AthletesService {
   }
 
   async findAll(query: QueryAthletesDto) {
+    const { page = 1, limit = 30 } = query;
+    const where = this.buildAthleteWhere(query);
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.athlete.findMany({
+        where,
+        include: this.getAthleteListInclude(),
+        skip,
+        take: limit,
+        orderBy: { fullName: 'asc' },
+      }),
+      this.prisma.athlete.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  private buildAthleteWhere(query: QueryAthletesDto): Prisma.AthleteWhereInput {
     const {
       search,
       countryId,
@@ -58,11 +90,9 @@ export class AthletesService {
       categoryIds,
       gender,
       eventId,
-      page = 1,
-      limit = 30,
     } = query;
 
-    const where: any = {};
+    const where: Prisma.AthleteWhereInput = {};
 
     if (search) {
       where.OR = [
@@ -120,26 +150,7 @@ export class AthletesService {
       };
     }
 
-    const skip = (page - 1) * limit;
-
-    const [items, total] = await Promise.all([
-      this.prisma.athlete.findMany({
-        where,
-        include: this.getAthleteListInclude(),
-        skip,
-        take: limit,
-        orderBy: { fullName: 'asc' },
-      }),
-      this.prisma.athlete.count({ where }),
-    ]);
-
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return where;
   }
 
   async getFilterOptions(query: QueryAthletesDto) {
@@ -300,14 +311,125 @@ export class AthletesService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
-    const media = await this.prisma.athleteMedia.findMany({ where: { athleteId: id }, select: { storageKey: true } });
-    const result = await this.prisma.athlete.delete({
-      where: { id },
-      include: this.getAthleteInclude(),
+    return this.deleteAthlete(id);
+  }
+
+  async previewBulkDelete(dto: PreviewAthleteDeleteDto) {
+    if (!dto.filters || typeof dto.filters !== 'object' || Array.isArray(dto.filters)) {
+      throw new BadRequestException('Vui lòng cung cấp bộ lọc danh sách cần xóa');
+    }
+    const where = this.buildAthleteWhere(dto.filters);
+    const candidates = await this.findDeleteCandidates(where);
+    return { total: candidates.length, selectionToken: this.deleteSelectionToken(where, candidates) };
+  }
+
+  async bulkDelete(dto: BulkDeleteAthletesDto) {
+    let where: Prisma.AthleteWhereInput;
+    let candidates: AthleteDeleteCandidate[];
+    if (dto.mode === AthleteDeleteMode.SELECTED) {
+      if (!Array.isArray(dto.ids) || !dto.ids.length || dto.ids.length > 1000
+        || dto.ids.some((id) => typeof id !== 'string' || !/^\S+$/.test(id))
+        || dto.filters !== undefined || dto.expectedCount !== undefined || dto.selectionToken !== undefined) {
+        throw new BadRequestException('Chọn từ 1 đến 1000 vận động viên cần xóa');
+      }
+      const ids = [...new Set(dto.ids)];
+      where = { id: { in: ids } };
+      const existing = new Map((await this.findDeleteCandidates(where)).map((athlete) => [athlete.id, athlete]));
+      candidates = ids.map((id) => existing.get(id) || { id });
+    } else if (dto.mode === AthleteDeleteMode.ALL_MATCHING) {
+      if (!dto.filters || typeof dto.filters !== 'object' || Array.isArray(dto.filters)
+        || !Number.isSafeInteger(dto.expectedCount) || dto.expectedCount < 1
+        || !/^[a-f0-9]{64}$/.test(dto.selectionToken || '') || dto.ids !== undefined) {
+        throw new BadRequestException('Vui lòng chọn lại và xác nhận toàn bộ danh sách cần xóa');
+      }
+      where = this.buildAthleteWhere(dto.filters);
+      candidates = await this.findDeleteCandidates(where);
+      if (candidates.length !== dto.expectedCount || this.deleteSelectionToken(where, candidates) !== dto.selectionToken) {
+        throw new ConflictException('Danh sách vận động viên đã thay đổi. Vui lòng tải lại, chọn và xác nhận xóa lần nữa.');
+      }
+    } else {
+      throw new BadRequestException('Phạm vi xóa vận động viên không hợp lệ');
+    }
+
+    const outcomes: ({ deleted: { id: string; fullName: string } } | { failed: AthleteDeleteFailure })[] = [];
+    let nextIndex = 0;
+    // Each athlete has its own transaction so a protected record never hides
+    // successful deletions or aborts PostgreSQL transactions for other records.
+    await Promise.all(Array.from({ length: Math.min(5, candidates.length) }, async () => {
+      while (nextIndex < candidates.length) {
+        const index = nextIndex++;
+        const candidate = candidates[index];
+        try {
+          const deleted = await this.deleteAthlete(candidate.id, {
+            AND: [where, ...(candidate.updatedAt ? [{ updatedAt: candidate.updatedAt }] : [])],
+          });
+          outcomes[index] = { deleted: { id: deleted.id, fullName: deleted.fullName } };
+        } catch (error) {
+          outcomes[index] = { failed: { id: candidate.id, fullName: candidate.fullName, reason: this.deleteFailureReason(error) } };
+        }
+      }
+    }));
+
+    const deleted = outcomes.flatMap((outcome) => 'deleted' in outcome ? [outcome.deleted] : []);
+    const failed = outcomes.flatMap((outcome) => 'failed' in outcome ? [outcome.failed] : []);
+    return {
+      requestedCount: candidates.length,
+      deletedCount: deleted.length,
+      deletedIds: deleted.map((athlete) => athlete.id),
+      deleted,
+      failed,
+    };
+  }
+
+  private findDeleteCandidates(where: Prisma.AthleteWhereInput) {
+    return this.prisma.athlete.findMany({
+      where,
+      select: { id: true, fullName: true, updatedAt: true },
+      orderBy: { id: 'asc' },
     });
+  }
+
+  private deleteSelectionToken(where: Prisma.AthleteWhereInput, candidates: AthleteDeleteCandidate[]) {
+    return createHash('sha256').update(JSON.stringify({
+      where,
+      athletes: candidates.map((athlete) => [athlete.id, athlete.updatedAt?.toISOString()]),
+    })).digest('hex');
+  }
+
+  private async deleteAthlete(id: string, additionalWhere?: Prisma.AthleteWhereInput) {
+    const { result, media } = await this.prisma.$transaction(async (transaction) => {
+      // Lock before collecting media keys; concurrent uploads must finish first
+      // or fail after deletion, preventing orphaned private document files.
+      await transaction.$queryRaw(Prisma.sql`SELECT id FROM "Athlete" WHERE id = ${id} FOR UPDATE`);
+      const athlete = await transaction.athlete.findUnique({
+        where: { id },
+        select: { _count: { select: { statistics: true, teamMemberships: true } } },
+      });
+      if (!athlete) throw new NotFoundException('Vận động viên không còn trong danh sách');
+      if (athlete._count.statistics || athlete._count.teamMemberships) {
+        throw new BadRequestException('Không thể xóa vận động viên đang có thành tích hoặc thuộc đội thi đấu.');
+      }
+      const media = await transaction.athleteMedia.findMany({ where: { athleteId: id }, select: { storageKey: true } });
+      // Preserve the same database cascade rules as individual deletion. The
+      // linked SportData account remains; its athlete relation becomes empty.
+      const result = await transaction.athlete.delete({
+        where: { id, ...(additionalWhere ? { AND: [additionalWhere] } : {}) },
+        include: this.getAthleteInclude(),
+      });
+      return { result, media };
+    }, { timeout: 10000 });
     await Promise.all(media.map((file) => this.storage.deleteQuietly(file.storageKey)));
     return result;
+  }
+
+  private deleteFailureReason(error: unknown) {
+    if (error instanceof BadRequestException || error instanceof NotFoundException) return error.message;
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2003') return 'Vận động viên đang được dữ liệu thi đấu hoặc thành tích sử dụng nên không thể xóa.';
+      if (error.code === 'P2025') return 'Hồ sơ đã thay đổi hoặc không còn thuộc danh sách đã chọn. Vui lòng chọn lại.';
+    }
+    this.logger.error('Không thể hoàn tất xóa một hồ sơ vận động viên');
+    return 'Không thể xóa hồ sơ này. Vui lòng thử lại.';
   }
 
   async uploadAvatar(id: string, file?: Express.Multer.File) {

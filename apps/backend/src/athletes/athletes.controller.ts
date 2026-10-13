@@ -24,6 +24,7 @@ import { AthletesService } from './athletes.service';
 import { CreateAthleteDto } from './dto/create-athlete.dto';
 import { UpdateAthleteDto } from './dto/update-athlete.dto';
 import { QueryAthletesDto } from './dto/query-athletes.dto';
+import { BulkDeleteAthletesDto, PreviewAthleteDeleteDto } from './dto/bulk-delete-athletes.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -40,6 +41,24 @@ export class AthletesController {
   @ApiResponse({ status: 201, description: 'Athlete created successfully' })
   create(@Body() createAthleteDto: CreateAthleteDto) {
     return this.athletesService.create(createAthleteDto);
+  }
+
+  @Post('bulk-delete/preview')
+  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Capture all athletes matching the current filters before bulk deletion' })
+  previewBulkDelete(@Body() dto: PreviewAthleteDeleteDto) {
+    return this.athletesService.previewBulkDelete(dto);
+  }
+
+  @Post('bulk-delete')
+  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete selected athletes or a confirmed filter snapshot, reporting every failure' })
+  bulkDelete(@Body() dto: BulkDeleteAthletesDto) {
+    return this.athletesService.bulkDelete(dto);
   }
 
   @Post(':id/avatar')
