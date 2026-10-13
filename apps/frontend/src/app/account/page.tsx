@@ -12,7 +12,8 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { Avatar, Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber, Modal, Row, Segmented, Select, Spin, Tag, Upload } from 'antd';
 import { CreditCard, Download, Eye, FileCheck2, FileText, ImagePlus, Pencil, Save, ScanText, TicketCheck, UploadCloud, UserRound } from 'lucide-react';
 import { CameraCaptureButton } from '@/components/CameraCaptureButton';
-import { EventParticipationCard } from '@/components/EventParticipationCard';
+import { IssuedAthleteTicket } from '@/components/IssuedAthleteTicket';
+import { distinctAthleteTickets, isTicketIssued } from '@/lib/athlete-tickets';
 import type { TicketDesign } from '@/lib/ticket-design';
 import { IdentityOcrReviewModal, type IdentityOcrFields, type IdentityOcrResult } from '@/components/IdentityOcrReviewModal';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
@@ -21,7 +22,7 @@ import { clearParticipantSession, getParticipantAccount, getParticipantToken, pa
 import { accountTypeLabel, type SportDataAccountType } from '@/lib/sportdata-account-types';
 import { TeamAccountPanel } from '@/components/TeamAccountPanel';
 import { MyEventParticipations } from '@/components/MyEventParticipations';
-import type { ParticipationTicket, TicketStatistics } from '@/lib/ticket-types';
+import type { TicketStatistics } from '@/lib/ticket-types';
 
 type MediaType = 'AVATAR' | 'CCCD_FRONT' | 'CCCD_BACK' | 'PASSPORT';
 type UploadRequestOption = Parameters<NonNullable<ComponentProps<typeof Upload>['customRequest']>>[0];
@@ -117,57 +118,6 @@ const mediaLabels: Record<MediaType, string> = {
   PASSPORT: 'Hộ chiếu (nếu có)',
 };
 
-function aggregateStatistics(items: TicketStatistics[] = []): TicketStatistics {
-  return items.reduce((total, item) => ({
-    totalWins: total.totalWins + item.totalWins,
-    totalLosses: total.totalLosses + item.totalLosses,
-    totalDraws: total.totalDraws + item.totalDraws,
-    totalMatches: total.totalMatches + item.totalMatches,
-    goldMedals: total.goldMedals + item.goldMedals,
-    silverMedals: total.silverMedals + item.silverMedals,
-    bronzeMedals: total.bronzeMedals + item.bronzeMedals,
-  }), {
-    totalWins: 0,
-    totalLosses: 0,
-    totalDraws: 0,
-    totalMatches: 0,
-    goldMedals: 0,
-    silverMedals: 0,
-    bronzeMedals: 0,
-  });
-}
-
-function registrationTicket(registration: Registration): ParticipationTicket {
-  const sport = registration.category.sport || registration.event.sport;
-  const sportStatistics = (registration.athlete.statistics || [])
-    .filter((item) => !sport?.id || item.sportId === sport.id);
-  const overallStatistics = sportStatistics.filter((item) => !item.eventId);
-  return {
-    ticketCode: registration.ticketCode,
-    status: registration.status,
-    paymentStatus: registration.paymentStatus,
-    isValid: registration.status === 'CONFIRMED'
-      && (registration.paymentStatus === 'PAID' || registration.paymentStatus === 'NOT_REQUIRED'),
-    issuedAt: registration.status === 'CONFIRMED' ? registration.createdAt : undefined,
-    event: {
-      ...registration.event,
-      ticketBackgroundUrl: registration.event.ticketBackgroundSize
-        ? `/api/events/${registration.event.id}/ticket-background${registration.event.updatedAt ? `?v=${new Date(registration.event.updatedAt).getTime()}` : ''}`
-        : null,
-    },
-    sport,
-    category: registration.category,
-    athlete: {
-      ...registration.athlete,
-      avatarUrl: `/api/participant-auth/avatar/${registration.athlete.id}`,
-    },
-    achievements: {
-      event: aggregateStatistics(sportStatistics.filter((item) => item.eventId === registration.event.id)),
-      career: aggregateStatistics(overallStatistics.length ? overallStatistics : sportStatistics),
-    },
-  };
-}
-
 export default function ParticipantAccountPage() {
   const router = useRouter();
   const toast = useSportDataToast();
@@ -185,6 +135,7 @@ export default function ParticipantAccountPage() {
     { shouldRetryOnError: false },
   );
   const { data: registrations = [], mutate: mutateRegistrations } = useSWR<Registration[]>(getParticipantToken() ? '/participant-auth/registrations' : null, authFetcher);
+  const ticketRows = distinctAthleteTickets(registrations, (item) => `${item.event.id}:${item.athlete.id}`);
   const { data: countries = [] } = useSWR<Country[]>('/countries', fetcher);
   const { data: federations = [] } = useSWR<Federation[]>('/federations', fetcher);
   const selectedCountryId = Form.useWatch('countryId', profileForm);
@@ -379,7 +330,7 @@ export default function ParticipantAccountPage() {
           onChange={(value) => setTab(value as typeof tab)}
           options={[
             { value: 'profile', label: 'Thông tin & giấy tờ', icon: <CreditCard className="h-4 w-4" /> },
-            { value: 'tickets', label: `Thẻ & hồ sơ đã đăng ký (${registrations.length})`, icon: <TicketCheck className="h-4 w-4" /> },
+            { value: 'tickets', label: `Thẻ & hồ sơ đã đăng ký (${ticketRows.length})`, icon: <TicketCheck className="h-4 w-4" /> },
           ]}
         />
 
@@ -488,13 +439,12 @@ export default function ParticipantAccountPage() {
           </div>
         ) : registrations.length ? (
           <div className="mx-auto max-w-4xl space-y-7">
-            {registrations.map((registration) => {
-              const ticketIssued = registration.status === 'CONFIRMED'
-                && (registration.paymentStatus === 'PAID' || registration.paymentStatus === 'NOT_REQUIRED');
+            {ticketRows.map((registration) => {
+              const ticketIssued = isTicketIssued(registration);
               return (
               <div key={registration.id}>
                 {ticketIssued ? (
-                  <EventParticipationCard ticket={registrationTicket(registration)} />
+                  <IssuedAthleteTicket code={registration.ticketCode} />
                 ) : (
                   <Card className="border-sky-500/20">
                     <div className="flex flex-wrap items-start justify-between gap-4">

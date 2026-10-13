@@ -20,6 +20,12 @@ export type TicketElement = {
   align?: 'left' | 'center' | 'right';
 };
 export type TicketDesign = { version: 1; elements: TicketElement[] };
+export type TicketCategoryContent = {
+  name: string;
+  discipline?: string | null;
+  uniform?: string | null;
+  sport?: { name: string } | null;
+};
 export type TicketContent = {
   ticketCode: string;
   roleLabel?: string;
@@ -29,6 +35,7 @@ export type TicketContent = {
   event: { name: string; startDate: string | Date; location?: string | null };
   sport?: { name: string } | null;
   category: { name: string };
+  categories?: TicketCategoryContent[];
   athlete: { fullName: string; federation?: { name?: string } | null; country?: { name?: string } | null };
 };
 
@@ -82,6 +89,19 @@ export function ticketDesign(value: unknown): TicketDesign {
   try { return validateTicketDesign(value); } catch { return defaultTicketDesign(); }
 }
 
+export function ticketCategoryLabel(category: TicketCategoryContent): string {
+  const labels: Record<string, string> = {
+    NEWAZA: category.uniform === 'NO_GI' ? 'No-Gi' : 'Gi',
+    FIGHTING: 'Fighting',
+    CONTACT: 'Full Contact',
+    FULL_CONTACT: 'Full Contact',
+    DUO: 'Duo',
+    SHOW: 'Show',
+  };
+  const label = labels[category.discipline || ''] || category.discipline;
+  return label ? `${label} · ${category.name}` : category.name;
+}
+
 export function ticketTextValue(element: TicketElement, ticket: TicketContent): string {
   const values: Record<TicketField, string> = {
     CUSTOM: ticket.roleLabel && element.text?.trim().toUpperCase() === 'VẬN ĐỘNG VIÊN'
@@ -90,8 +110,10 @@ export function ticketTextValue(element: TicketElement, ticket: TicketContent): 
     FEDERATION: ticket.athlete.federation?.name || (ticket.roleLabel ? 'Người tham gia cá nhân' : 'Vận động viên tự do'),
     COUNTRY: ticket.athlete.country?.name || '—',
     EVENT_NAME: ticket.event.name,
-    CATEGORY: ticket.category.name,
-    SPORT: ticket.sport?.name || 'Giải đấu thể thao',
+    CATEGORY: ticket.categories?.length ? ticket.categories.map(ticketCategoryLabel).join('\n') : ticket.category.name,
+    SPORT: ticket.categories?.some((category) => category.sport?.name)
+      ? [...new Set(ticket.categories.map((category) => category.sport?.name).filter(Boolean))].join(' · ')
+      : ticket.sport?.name || 'Giải đấu thể thao',
     EVENT_DATE: new Date(ticket.event.startDate).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
     LOCATION: ticket.event.location || 'Địa điểm cập nhật sau',
     TICKET_CODE: ticket.ticketCode,

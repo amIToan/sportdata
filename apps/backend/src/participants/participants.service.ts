@@ -1442,11 +1442,46 @@ export class ParticipantsService {
       };
     }
 
-    const sportId = registration.category.sportId;
-    const sportStatistics = registration.athlete.statistics.filter((item) => item.sportId === sportId);
+    // Registration/payment records stay separate; an issued pass belongs to the
+    // athlete at this event, including disciplines added in later submissions.
+    const isIssued = registration.status === RegistrationStatus.CONFIRMED
+      && (registration.paymentStatus === PaymentStatus.PAID
+        || registration.paymentStatus === PaymentStatus.NOT_REQUIRED);
+    const issuedRegistrations = isIssued ? await this.prisma.eventRegistration.findMany({
+      where: {
+        eventId: registration.eventId,
+        athleteId: registration.athleteId,
+        status: RegistrationStatus.CONFIRMED,
+        paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.NOT_REQUIRED] },
+      },
+      include: { category: { include: { sport: true } }, federation: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }) : [];
+    if (issuedRegistrations.length) {
+      registration = { ...registration, ...issuedRegistrations[0] };
+    }
+    const ticketRegistrations = issuedRegistrations.length ? issuedRegistrations : [registration];
+    const categories = ticketRegistrations.map(({ category }) => ({
+      id: category.id,
+      name: category.name,
+      gender: category.gender,
+      discipline: category.discipline,
+      uniform: category.uniform,
+      beltLevel: category.beltLevel,
+      minAge: category.minAge,
+      maxAge: category.maxAge,
+      minWeight: category.minWeight,
+      maxWeight: category.maxWeight,
+      sport: { id: category.sport.id, code: category.sport.code, name: category.sport.name },
+    }));
+    const sportIds = new Set(ticketRegistrations.map((item) => item.category.sportId));
+    const sportStatistics = registration.athlete.statistics.filter((item) => sportIds.has(item.sportId));
     const eventStatistics = sportStatistics.filter((item) => item.eventId === registration.eventId);
-    const overallStatistics = sportStatistics.filter((item) => item.eventId === null);
-    const careerStatistics = overallStatistics.length ? overallStatistics : sportStatistics;
+    const careerStatistics = [...sportIds].flatMap((sportId) => {
+      const statistics = sportStatistics.filter((item) => item.sportId === sportId);
+      const overall = statistics.filter((item) => item.eventId === null);
+      return overall.length ? overall : statistics;
+    });
 
     return {
       ticketCode: registration.ticketCode,
@@ -1491,18 +1526,8 @@ export class ParticipantsService {
         code: registration.category.sport.code,
         name: registration.category.sport.name,
       },
-      category: {
-        id: registration.category.id,
-        name: registration.category.name,
-        gender: registration.category.gender,
-        discipline: registration.category.discipline,
-        uniform: registration.category.uniform,
-        beltLevel: registration.category.beltLevel,
-        minAge: registration.category.minAge,
-        maxAge: registration.category.maxAge,
-        minWeight: registration.category.minWeight,
-        maxWeight: registration.category.maxWeight,
-      },
+      category: categories[0],
+      categories,
       athlete: {
         id: registration.athlete.id,
         fullName: registration.athlete.fullName,
@@ -1547,7 +1572,7 @@ export class ParticipantsService {
       where: { referenceCode: referenceCode.trim().toUpperCase() },
       include: {
         registrations: {
-          select: { ticketCode: true, status: true, paymentStatus: true },
+          select: { ticketCode: true, status: true, paymentStatus: true, athleteId: true, eventId: true },
           orderBy: { createdAt: 'asc' },
         },
       },
@@ -1564,8 +1589,13 @@ export class ParticipantsService {
         'Bộ thẻ chỉ được phát hành sau khi tất cả hồ sơ được duyệt và thanh toán đã hoàn tất',
       );
     }
+    const registrationsByAthlete = new Map<string, typeof submission.registrations[number]>();
+    for (const item of submission.registrations) {
+      const key = `${item.eventId}:${item.athleteId}`;
+      if (!registrationsByAthlete.has(key)) registrationsByAthlete.set(key, item);
+    }
     const tickets = await Promise.all(
-      submission.registrations.map((item) => this.getIssuedTicket(item.ticketCode, includeAssets)),
+      [...registrationsByAthlete.values()].map((item) => this.getIssuedTicket(item.ticketCode, includeAssets)),
     );
     return {
       meta: {

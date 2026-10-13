@@ -73,10 +73,8 @@ export default function TicketVerificationPage() {
   const status = statusLabels[ticket.status] || statusLabels.SUBMITTED;
   const career = ticket.achievements?.career;
   const eventPerformance = ticket.achievements?.event;
-  const weightRange = [
-    ticket.category.minWeight != null ? `từ ${ticket.category.minWeight} kg` : '',
-    ticket.category.maxWeight != null ? `đến ${ticket.category.maxWeight} kg` : '',
-  ].filter(Boolean).join(' ');
+  const categories: NonNullable<ParticipationTicket['categories']> = ticket.categories?.length
+    ? ticket.categories : [ticket.category];
 
   return (
     <main className="ticket-verification-page min-h-screen px-4 py-10 sm:px-6">
@@ -150,15 +148,26 @@ export default function TicketVerificationPage() {
             </Descriptions>
           </Card>
 
-          <Card title="Nội dung thi đấu">
-            <Descriptions column={1} size="small" colon={false}>
-              <Descriptions.Item label="Bộ môn">{ticket.sport?.name || '—'}</Descriptions.Item>
-              <Descriptions.Item label="Hạng đấu">{ticket.category.name}</Descriptions.Item>
-              <Descriptions.Item label="Nội dung">{disciplineLabels[ticket.category.discipline || ''] || ticket.category.discipline || '—'}</Descriptions.Item>
-              <Descriptions.Item label="Giới tính hạng">{genderLabels[ticket.category.gender || ''] || ticket.category.gender || '—'}</Descriptions.Item>
-              <Descriptions.Item label="Hạng cân">{weightRange || 'Không giới hạn'}</Descriptions.Item>
-              <Descriptions.Item label="Đai">{ticket.category.beltLevel || '—'}</Descriptions.Item>
-            </Descriptions>
+          <Card title={`Nội dung thi đấu (${categories.length})`}>
+            <div className="space-y-5">
+              {categories.map((category, index) => {
+                const weightRange = [
+                  category.minWeight != null ? `từ ${category.minWeight} kg` : '',
+                  category.maxWeight != null ? `đến ${category.maxWeight} kg` : '',
+                ].filter(Boolean).join(' ');
+                const sport = category.sport || ticket.sport;
+                return (
+                  <Descriptions key={category.id || index} column={1} size="small" colon={false}>
+                    <Descriptions.Item label="Bộ môn">{sport?.name || '—'}</Descriptions.Item>
+                    <Descriptions.Item label="Hạng đấu">{category.name}</Descriptions.Item>
+                    <Descriptions.Item label="Nội dung">{disciplineLabels[category.discipline || ''] || category.discipline || '—'}{category.discipline === 'NEWAZA' ? ` · ${category.uniform === 'NO_GI' ? 'No-Gi' : 'Gi'}` : ''}</Descriptions.Item>
+                    <Descriptions.Item label="Giới tính hạng">{genderLabels[category.gender || ''] || category.gender || '—'}</Descriptions.Item>
+                    <Descriptions.Item label="Hạng cân">{weightRange || 'Không giới hạn'}</Descriptions.Item>
+                    <Descriptions.Item label="Đai">{category.beltLevel || '—'}</Descriptions.Item>
+                  </Descriptions>
+                );
+              })}
+            </div>
           </Card>
         </div>
 

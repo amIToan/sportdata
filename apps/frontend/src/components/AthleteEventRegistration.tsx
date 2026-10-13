@@ -23,7 +23,8 @@ import {
 import { Download, FileImage, ImageIcon, Loader2, Plus, RefreshCw, Send, Trash2, UploadCloud, Users } from 'lucide-react';
 import { RegistrationDisciplines, registrationCategoryLabel, type DisciplineEntry, type RegistrationCategory } from '@/components/RegistrationDisciplines';
 import { CameraCaptureButton } from '@/components/CameraCaptureButton';
-import { EventParticipationCard } from '@/components/EventParticipationCard';
+import { IssuedAthleteTicket } from '@/components/IssuedAthleteTicket';
+import { distinctAthleteTickets, isTicketIssued } from '@/lib/athlete-tickets';
 import type { TicketDesign } from '@/lib/ticket-design';
 import { PaymentCheckout } from '@/components/PaymentCheckout';
 import { IdentityOcrReviewModal, type IdentityOcrFields, type IdentityOcrResult } from '@/components/IdentityOcrReviewModal';
@@ -490,6 +491,8 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
 
   if (isLoading || !event) return <main className="grid min-h-[60vh] place-items-center"><Spin size="large" /></main>;
   if (result) {
+    const ticketRows = distinctAthleteTickets(result.registrations, (item) => item.athleteId);
+    const athleteCount = new Set(result.registrations.map((item) => item.athleteId)).size;
     const allTicketsIssued = result.registrations.every((registration) => (
       registration.status === 'CONFIRMED'
       && (registration.paymentStatus === 'PAID' || registration.paymentStatus === 'NOT_REQUIRED')
@@ -504,7 +507,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
             extra={[
               ...(allTicketsIssued && result.referenceCode && !result.hasExistingRegistrations ? [
                 <Button key="pdf" type="primary" loading={downloadingPdf} icon={<Download className="h-4 w-4" />} onClick={() => void downloadSubmissionPdf(result)}>
-                  {result.registrations.length > 1 ? `Tải bộ ${result.registrations.length} thẻ PDF` : 'Tải thẻ PDF'}
+                  {athleteCount > 1 ? `Tải bộ ${athleteCount} thẻ PDF` : 'Tải thẻ PDF'}
                 </Button>,
               ] : []),
               <Link key="event" href={`/events/${eventId}`}><Button>Quay lại sự kiện</Button></Link>,
@@ -519,10 +522,10 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
               description="Bạn có thể hoàn tất thanh toán và theo dõi từng hồ sơ bên dưới. Khi được duyệt, thẻ và mã QR check-in mới xuất hiện, đồng thời được gửi về email đăng ký."
             />
           ) : result.registrations.length > 1 && (
-            <ToastNotice className="mb-6" showIcon type="info" message="Mỗi nội dung đăng ký có một thẻ và QR riêng" description="Bộ PDF gồm danh sách đăng ký và thẻ riêng cho từng nội dung thi đấu của mỗi VĐV." />
+            <ToastNotice className="mb-6" showIcon type="info" message="Mỗi vận động viên có một thẻ và QR chung" description="Các nội dung đã được duyệt và hoàn tất thanh toán trong cùng giải được gộp trên một thẻ của vận động viên." />
           )}
           <div className="mx-auto max-w-3xl space-y-7">
-            {result.registrations.map((registration) => {
+            {ticketRows.map((registration) => {
               const athlete = activeAthletes[registration.athleteIndex];
               const category = event.categories.find((item) => item.id === registration.categoryId);
               const country = countries.find((item) => item.id === athlete?.countryId);
@@ -562,14 +565,13 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
                   avatarUrl: `/api/participant-auth/avatar/${registration.athleteId}`,
                 },
               };
-              const ticketIssued = registration.status === 'CONFIRMED'
-                && (registration.paymentStatus === 'PAID' || registration.paymentStatus === 'NOT_REQUIRED');
+              const ticketIssued = isTicketIssued(registration);
               return (
                 <div key={registration.id}>
-                  {category && <h3 className="mb-3 font-semibold">{registrationCategoryLabel(category)}</h3>}
+                  {!ticketIssued && category && <h3 className="mb-3 font-semibold">{registrationCategoryLabel(category)}</h3>}
                   <PaymentCheckout ticket={ticket} />
                   {ticketIssued ? (
-                    <EventParticipationCard ticket={ticket} />
+                    <IssuedAthleteTicket code={registration.ticketCode} />
                   ) : (
                     <Card size="small" className="border-sky-500/20">
                       <div className="flex flex-wrap items-center justify-between gap-3">

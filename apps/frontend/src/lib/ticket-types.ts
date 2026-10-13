@@ -57,6 +57,7 @@ export type ParticipationTicket = {
     minWeight?: number | null;
     maxWeight?: number | null;
   };
+  categories?: Array<ParticipationTicket['category'] & { sport?: ParticipationTicket['sport'] }>;
   athlete: {
     id?: string;
     fullName: string;

@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import pdfMake from "pdfmake/build/pdfmake";
 import vfsFonts from "pdfmake/build/vfs_fonts";
 import type { Content, TDocumentDefinitions } from "pdfmake/interfaces";
-import { POINTS_PER_MM, TICKET_WIDTH, TICKET_HEIGHT, ticketDesign, ticketTextSvg, ticketTextValue } from '../events/ticket-design';
+import { POINTS_PER_MM, TICKET_WIDTH, TICKET_HEIGHT, ticketDesign, ticketTextSvg, ticketTextValue, type TicketCategoryContent } from '../events/ticket-design';
 
 export type TicketPayload = {
   ticketCode: string;
@@ -30,6 +30,7 @@ export type TicketPayload = {
     minWeight?: number | null;
     maxWeight?: number | null;
   };
+  categories?: TicketCategoryContent[];
   athlete: {
     fullName: string;
     birthDate?: Date | string | null;

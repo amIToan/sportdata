@@ -77,6 +77,7 @@ function fixture(paymentMode = 'MANUAL') {
   const prisma = {
     event: { findUnique: async () => event },
     country: { findMany: async () => [{ id: 'VIE' }] },
+    participantAccount: { findUnique: async () => null },
     eventRegistration: model('registrations'), athlete: model('athletes'),
     registrationSubmission: model('submissions'), paymentTransaction: model('payments'),
     paymentStatusHistory: model('paymentHistory'), registrationStatusHistory: model('statusHistory'),
