@@ -802,6 +802,9 @@ model EventRegistration {
   feeAmount              Int                         @default(0)
   currency               String                      @default("VND")
   ticketCode             String                      @unique
+  teamId                 String?
+  team                   Team?                       @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  isPairPayer            Boolean                     @default(false)
   paymentTransactions    PaymentTransaction[]
   statusHistory          RegistrationStatusHistory[]
   paymentStatusHistory   PaymentStatusHistory[]
@@ -811,6 +814,7 @@ model EventRegistration {
 
   @@unique([eventId, athleteId, categoryId])
   @@index([accountId, createdAt])
+  @@index([teamId])
   @@index([submissionId])
   @@index([eventId, status])
   @@index([categoryId])
@@ -1199,6 +1203,7 @@ model Team {
   name              String
   code              String?
   gender            Gender?
+  registrations     EventRegistration[]
   members           TeamMember[]
   entries           CompetitionEntry[]
   matchesAsTeam1    Match[]            @relation("Team1Matches")

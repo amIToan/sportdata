@@ -127,7 +127,7 @@ export function DrawPreconfiguration({ event, categoryId, drawType, actorId, ent
       const currentEntries: any[] = await fetcher(rosterUrl);
       await mutateGlobal(rosterUrl, currentEntries, { revalidate: false });
       const athleteIds = currentEntries.filter((entry) => entry.status === 'VERIFIED'
-        && entry.type === 'INDIVIDUAL' && entry.athlete?.id).map((entry) => entry.athlete.id);
+        && (entry.type === 'INDIVIDUAL' && entry.athlete?.id || entry.type === 'TEAM' && entry.team?.members?.length === 2)).map((entry) => entry.athlete?.id || entry.team.id);
       const response = await api.post<Configuration>(`${base}/preview-draw`, {
         type: drawType, athleteIds,
         seedingMode: mode, groupCount: isRepechage ? 1 : groupCount, revision: data.revision, name,
@@ -152,7 +152,7 @@ export function DrawPreconfiguration({ event, categoryId, drawType, actorId, ent
     const used = new Set(pairs.flatMap((pair, position) => position === index
       ? [pair[side === 'entry1Id' ? 'entry2Id' : 'entry1Id']] : [pair.entry1Id, pair.entry2Id]));
     return entries.map((entry) => ({ value: entry.id, disabled: used.has(entry.id),
-      label: `${entry.athlete.fullName} · ${entry.athlete.federation?.name || entry.athlete.country?.code || 'VĐV tự do'}` }));
+      label: `${entry.athlete?.fullName || entry.team?.members?.map((member: any) => member.athlete.fullName).join(' / ')} · ${entry.athlete?.federation?.name || entry.country?.code || 'VĐV tự do'}` }));
   };
 
   return (

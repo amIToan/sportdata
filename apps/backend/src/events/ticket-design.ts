@@ -3,7 +3,7 @@
 export const TICKET_WIDTH = 105;
 export const TICKET_HEIGHT = 148;
 export const POINTS_PER_MM = 72 / 25.4;
-export const TICKET_FIELDS = ['CUSTOM', 'ROLE', 'ATHLETE_NAME', 'FEDERATION', 'COUNTRY', 'EVENT_NAME', 'CATEGORY', 'SPORT', 'EVENT_DATE', 'LOCATION', 'TICKET_CODE', 'STATUS'] as const;
+export const TICKET_FIELDS = ['CUSTOM', 'ATHLETE_NAME', 'FEDERATION', 'COUNTRY', 'EVENT_NAME', 'CATEGORY', 'SPORT', 'EVENT_DATE', 'EVENT_END_DATE', 'EVENT_DATE_RANGE', 'LOCATION', 'TICKET_CODE', 'STATUS'] as const;
 export type TicketField = typeof TICKET_FIELDS[number];
 export type TicketElement = {
   id: string;
@@ -32,7 +32,7 @@ export type TicketContent = {
   status: string;
   paymentStatus?: string;
   isValid?: boolean;
-  event: { name: string; startDate: string | Date; location?: string | null };
+  event: { name: string; startDate: string | Date; endDate?: string | Date | null; location?: string | null };
   sport?: { name: string } | null;
   category: { name: string };
   categories?: TicketCategoryContent[];
@@ -52,7 +52,7 @@ export function defaultTicketDesign(): TicketDesign {
     text('athlete-title', 'ROLE', 7, 105, 91, 10, 20, '#0284C7'),
     text('athlete-name', 'ATHLETE_NAME', 7, 118, 91, 8, 13),
     text('federation', 'FEDERATION', 7, 128, 91, 7, 10),
-    text('ticket-code', 'TICKET_CODE', 7, 138, 91, 5, 8),
+    text('event-dates', 'EVENT_DATE_RANGE', 7, 138, 91, 5, 8),
   ] };
 }
 
@@ -103,6 +103,15 @@ export function ticketCategoryLabel(category: TicketCategoryContent): string {
 }
 
 export function ticketTextValue(element: TicketElement, ticket: TicketContent): string {
+  const formatDate = (value?: string | Date | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+  };
+  const startDate = formatDate(ticket.event.startDate);
+  const endDate = formatDate(ticket.event.endDate);
   const values: Record<TicketField, string> = {
     CUSTOM: ticket.roleLabel && element.text?.trim().toUpperCase() === 'VẬN ĐỘNG VIÊN'
       ? ticket.roleLabel.toUpperCase() : element.text || '',
@@ -115,7 +124,11 @@ export function ticketTextValue(element: TicketElement, ticket: TicketContent): 
     SPORT: ticket.categories?.some((category) => category.sport?.name)
       ? [...new Set(ticket.categories.map((category) => category.sport?.name).filter(Boolean))].join(' · ')
       : ticket.sport?.name || 'Giải đấu thể thao',
-    EVENT_DATE: new Date(ticket.event.startDate).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+    EVENT_DATE: startDate || 'Chưa cập nhật',
+    EVENT_END_DATE: endDate || 'Chưa cập nhật',
+    EVENT_DATE_RANGE: startDate && endDate
+      ? startDate === endDate ? startDate : `${startDate} – ${endDate}`
+      : startDate || endDate || 'Chưa cập nhật',
     LOCATION: ticket.event.location || 'Địa điểm cập nhật sau',
     TICKET_CODE: ticket.ticketCode,
     STATUS: ticket.status === 'CONFIRMED' && ticket.isValid !== false ? 'VÉ HỢP LỆ' : ticket.status === 'REJECTED' ? 'KHÔNG HỢP LỆ' : ticket.status === 'CANCELLED' ? 'ĐÃ HỦY' : 'CHỜ XÁC NHẬN',

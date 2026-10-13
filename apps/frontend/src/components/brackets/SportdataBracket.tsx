@@ -16,6 +16,7 @@ export interface BracketCountry {
 }
 
 export interface BracketAthlete {
+  isTeam?: boolean;
   id: string;
   fullName: string;
   photoUrl?: string | null;
@@ -29,6 +30,9 @@ export interface BracketMatch {
   fop?: string | null;
   matchDate: string;
   startTime?: string | null;
+  team1?: { id: string; name: string; country?: BracketCountry | null; members?: { athlete: { fullName: string } }[] } | null;
+  team2?: BracketMatch['team1'];
+  winnerTeamId?: string | null;
   athlete1?: BracketAthlete | null;
   athlete2?: BracketAthlete | null;
   athlete1Score: number;
@@ -68,7 +72,11 @@ const BRACKET_HEADER_HEIGHT = 64;
 
 export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly = false, matchHref }: SportdataBracketProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const matches = [...draw.matches].sort((left, right) => {
+  const matches = draw.matches.map((match) => ({ ...match,
+    athlete1: match.athlete1 || (match.team1 ? { id: match.team1.id, isTeam: true, fullName: match.team1.members?.map((member) => member.athlete.fullName).join(' / ') || match.team1.name, country: match.team1.country } : null),
+    athlete2: match.athlete2 || (match.team2 ? { id: match.team2.id, isTeam: true, fullName: match.team2.members?.map((member) => member.athlete.fullName).join(' / ') || match.team2.name, country: match.team2.country } : null),
+    winnerId: match.winnerId || match.winnerTeamId,
+  })).sort((left, right) => {
     if ((left.round || 0) !== (right.round || 0)) return (left.round || 0) - (right.round || 0);
     return (left.bracketPosition || 0) - (right.bracketPosition || 0);
   });
@@ -325,7 +333,7 @@ function BracketParticipantNode({
       <Avatar
         shape="square"
         size={58}
-        src={imageUrl(athlete ? athlete.photoUrl || `/api/participant-auth/avatar/${athlete.id}` : undefined, 'avatar')}
+        src={imageUrl(athlete && !athlete.isTeam ? athlete.photoUrl || `/api/participant-auth/avatar/${athlete.id}` : undefined, 'avatar')}
         icon={<UserRound className="h-6 w-6" />}
         alt={athlete?.fullName || 'Vận động viên'}
         className="sportdata-node-avatar"
@@ -365,7 +373,7 @@ function BracketParticipantNode({
   const href = readOnly ? undefined : matchHref
     ? matchHref(match, athlete)
     : athlete
-      ? `/athletes/${athlete.id}`
+      ? athlete.isTeam ? undefined : `/athletes/${athlete.id}`
       : undefined;
 
   return href ? (

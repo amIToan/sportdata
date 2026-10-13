@@ -7,7 +7,9 @@ import { TICKET_HEIGHT, TICKET_WIDTH, TICKET_FIELDS, defaultTicketDesign, type T
 import type { ParticipationTicket } from '@/lib/ticket-types';
 
 const fieldLabels: Record<TicketField, string> = {
-  CUSTOM: 'Nội dung tự nhập', ROLE: 'Vai trò trên thẻ', ATHLETE_NAME: 'Họ tên trên thẻ', FEDERATION: 'Đơn vị / CLB', COUNTRY: 'Quốc gia', EVENT_NAME: 'Tên sự kiện', CATEGORY: 'Hạng đấu / Vai trò', SPORT: 'Bộ môn', EVENT_DATE: 'Ngày tổ chức', LOCATION: 'Địa điểm', TICKET_CODE: 'Mã thẻ', STATUS: 'Trạng thái thẻ',
+  CUSTOM: 'Nội dung tự nhập', ATHLETE_NAME: 'Tên vận động viên', FEDERATION: 'Đơn vị / CLB', COUNTRY: 'Quốc gia', EVENT_NAME: 'Tên sự kiện', CATEGORY: 'Hạng đấu', SPORT: 'Bộ môn',
+  EVENT_DATE: 'Ngày bắt đầu', EVENT_END_DATE: 'Ngày kết thúc', EVENT_DATE_RANGE: 'Ngày bắt đầu – kết thúc',
+  LOCATION: 'Địa điểm', TICKET_CODE: 'Mã thẻ', STATUS: 'Trạng thái thẻ',
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 type Point = { x: number; y: number };

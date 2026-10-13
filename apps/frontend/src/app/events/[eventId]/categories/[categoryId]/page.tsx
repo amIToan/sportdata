@@ -31,6 +31,7 @@ interface Federation {
 }
 
 interface Athlete {
+  isTeam?: boolean;
   id: string;
   fullName: string;
   photoUrl?: string | null;
@@ -95,6 +96,9 @@ interface MatchData {
   fop?: string | null;
   matchDate: string;
   startTime?: string | null;
+  team1?: { id: string; name: string; country?: Athlete['country']; members?: { athlete: { fullName: string } }[] } | null;
+  team2?: MatchData['team1'];
+  winnerTeamId?: string | null;
   athlete1?: Athlete | null;
   athlete2?: Athlete | null;
   athlete1Score: number;
@@ -383,15 +387,16 @@ function StandingsTable({ standings, expanded = false }: { standings: Standing[]
     {
       title: 'Vận động viên',
       key: 'athlete',
-      render: (_, row) => (
-        <Link href={`/athletes/${row.athlete.id}`} className="standing-athlete">
+      render: (_, row) => {
+        const content = <>
           <CountryFlag country={row.athlete.country} />
           <span>
             <strong>{row.athlete.fullName}</strong>
             <small>{row.athlete.federation?.name || row.athlete.country?.name || '—'}</small>
           </span>
-        </Link>
-      ),
+        </>;
+        return row.athlete.isTeam ? <div className="standing-athlete">{content}</div> : <Link href={`/athletes/${row.athlete.id}`} className="standing-athlete">{content}</Link>;
+      },
     },
     {
       title: 'Quốc gia',
@@ -504,7 +509,7 @@ function MatchProtocolTable({
       key: 'athlete1',
       width: 300,
       render: (_, match) => (
-        <ProtocolAthlete athlete={match.athlete1} winner={match.winnerId === match.athlete1?.id} />
+        <ProtocolAthlete athlete={match.athlete1 || (match.team1 ? { ...match.team1, isTeam: true, fullName: match.team1.members?.map((member) => member.athlete.fullName).join(' / ') || match.team1.name } : null)} winner={Boolean(match.winnerId && match.winnerId === match.athlete1?.id || match.winnerTeamId && match.winnerTeamId === match.team1?.id)} />
       ),
     },
     {
@@ -532,7 +537,7 @@ function MatchProtocolTable({
       key: 'athlete2',
       width: 300,
       render: (_, match) => (
-        <ProtocolAthlete athlete={match.athlete2} winner={match.winnerId === match.athlete2?.id} reverse />
+        <ProtocolAthlete athlete={match.athlete2 || (match.team2 ? { ...match.team2, isTeam: true, fullName: match.team2.members?.map((member) => member.athlete.fullName).join(' / ') || match.team2.name } : null)} winner={Boolean(match.winnerId && match.winnerId === match.athlete2?.id || match.winnerTeamId && match.winnerTeamId === match.team2?.id)} reverse />
       ),
     },
     {
@@ -582,19 +587,13 @@ function ProtocolAthlete({
     return <span className="text-slate-500">Chờ xác định</span>;
   }
 
-  return (
-    <Link
-      href={`/athletes/${athlete.id}`}
-      className={cn('protocol-athlete', reverse && 'is-reverse', winner && 'is-winner')}
-    >
-      <CountryFlag country={athlete.country} />
-      <span>
-        <strong>{athlete.fullName}</strong>
-        <small>{athlete.federation?.name || athlete.country?.name || '—'}</small>
-      </span>
-      {winner && <Crown className="h-3.5 w-3.5 shrink-0" />}
-    </Link>
-  );
+  const content = <>
+    <CountryFlag country={athlete.country} />
+    <span><strong>{athlete.fullName}</strong><small>{athlete.federation?.name || athlete.country?.name || '—'}</small></span>
+    {winner && <Crown className="h-3.5 w-3.5 shrink-0" />}
+  </>;
+  const className = cn('protocol-athlete', reverse && 'is-reverse', winner && 'is-winner');
+  return athlete.isTeam ? <div className={className}>{content}</div> : <Link href={`/athletes/${athlete.id}`} className={className}>{content}</Link>;
 }
 
 function RankBadge({ rank }: { rank: number }) {

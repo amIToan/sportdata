@@ -282,6 +282,8 @@ export class StatisticsService {
             federation: true,
           },
         },
+        team1: { include: { country: true, members: { include: { athlete: { include: { federation: true } } } } } },
+        team2: { include: { country: true, members: { include: { athlete: { include: { federation: true } } } } } },
         category: true,
         division: true,
       },
@@ -303,6 +305,13 @@ export class StatisticsService {
     >();
 
     for (const match of matches) {
+      for (const side of [1, 2] as const) {
+        const team = side === 1 ? match.team1 : match.team2;
+        if (team && ['PUBLISHED', 'LOCKED'].includes(match.resultStatus)) this.updateStandings(athleteStandings, { id: team.id, fullName: team.members.map((member) => member.athlete.fullName).join(' / '),
+          country: team.country, federation: team.members[0]?.athlete.federation, isTeam: true },
+          side === 1 ? match.athlete1Score : match.athlete2Score,
+          side === 1 ? match.athlete2Score : match.athlete1Score, match.winnerTeamId === team.id, match.winnerTeamId === null);
+      }
       if (match.athlete1Id) {
         this.updateStandings(
           athleteStandings,

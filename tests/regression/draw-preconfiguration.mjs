@@ -459,6 +459,49 @@ try {
     }
   }
   console.log('PASS: scheduled/claimed matches can revert; started, paused, completed or reopened matches cannot; standalone matches survive; START/revert races retain started matches.');
+  // Team IDs must persist in team foreign keys, including automatic BYE winners.
+  for (const discipline of ['DUO', 'SHOW']) {
+    const pairCategory = await prisma.category.create({ data: { name: `${discipline} pairs`, sportId: sport.id, gender: 'MALE', discipline } });
+    for (const type of ['MAIN_TREE', 'ROUND_ROBIN_POOL']) {
+      const pairEvent = await prisma.event.create({ data: { name: 'Pair smoke', sportId: sport.id,
+        startDate: new Date('2026-11-01'), endDate: new Date('2026-11-03'), categories: { connect: { id: pairCategory.id } } } });
+      const teamIds = [];
+      for (let index = 0; index < 3; index++) {
+        const athletes = await Promise.all([0, 1].map((member) => prisma.athlete.create({ data: {
+          firstName: `Pair ${index}`, lastName: `${member}`, fullName: `Pair ${index} member ${member}`, gender: 'MALE',
+          countryId: country.id, birthDate: new Date('2000-01-01'),
+        } })));
+        const team = await prisma.team.create({ data: { eventId: pairEvent.id, sportId: sport.id, countryId: country.id,
+          name: athletes.map((athlete) => athlete.fullName).join(' / '), gender: 'MALE',
+          members: { create: athletes.map((athlete) => ({ athleteId: athlete.id })) } } });
+        teamIds.push(team.id);
+        await prisma.competitionEntry.create({ data: { eventId: pairEvent.id, categoryId: pairCategory.id,
+          countryId: country.id, type: 'TEAM', status: 'VERIFIED', teamId: team.id } });
+      }
+      const pairPath = `/matches/event/${pairEvent.id}/category/${pairCategory.id}`;
+      await api(`${pairPath}/generate-draw`, ordinary.token, { athleteIds: teamIds, type }, 'POST', 201);
+      const pairMatches = await prisma.match.findMany({ where: { eventId: pairEvent.id } });
+      assert.equal(pairMatches.length, 3);
+      assert.ok(pairMatches.every((match) => !match.athlete1Id && !match.athlete2Id && !match.winnerId));
+      assert.ok(pairMatches.some((match) => match.team1Id && match.team2Id));
+      if (type === 'MAIN_TREE') assert.ok(pairMatches.some((match) => match.winnerTeamId && match.winMethod === 'WALKOVVER'));
+      else assert.equal(await prisma.matchParticipant.count({ where: { match: { eventId: pairEvent.id }, teamId: { in: teamIds } } }), 6);
+      const contest = pairMatches.find((match) => match.team1Id && match.team2Id);
+      let entered = await api(`/results/matches/${contest.id}/enter`, ordinary.token, { expectedVersion: 0,
+        athlete1Score: 24.5, athlete2Score: 23.25, winnerTeamId: contest.team1Id, winMethod: 'POINTS' }, 'POST', 201);
+      for (const action of ['referee-confirm', 'approve', 'publish']) entered = await api(`/results/matches/${contest.id}/${action}`,
+        ordinary.token, { expectedVersion: entered.resultVersion }, 'POST', 201);
+      const published = await prisma.match.findUnique({ where: { id: contest.id } });
+      assert.equal(published.winnerTeamId, contest.team1Id);
+      assert.equal(published.athlete1Score, 24.5);
+      if (contest.winnerToMatchId) {
+        const next = await prisma.match.findUnique({ where: { id: contest.winnerToMatchId } });
+        assert.ok([next.team1Id, next.team2Id].includes(contest.team1Id));
+      }
+
+    }
+  }
+  console.log('PASS: DUO/SHOW team draws, BYEs, round-robin participants and team foreign keys.');
   console.log('PASS: double-elimination preview/generation and immediate permission revocation.');
 } finally {
   if (app) await app.close();
