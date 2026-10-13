@@ -9,6 +9,7 @@ import { TicketNotFoundException, TicketNotIssuedException } from './ticket-avai
 import { AthleteIdentityService } from '../athletes/athlete-identity.service';
 import type { ImageVariant } from '../storage/image-variant';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { registrationMediaState } from './registration-media-state';
 
 const registrationRoles: EventParticipationRole[] = [EventParticipationRole.REFEREE, EventParticipationRole.TEAM_LEADER, EventParticipationRole.COACH];
 const federationRequiredRoles: EventParticipationRole[] = [EventParticipationRole.TEAM_LEADER, EventParticipationRole.REFEREE];
@@ -171,9 +172,12 @@ export class EventParticipationsService {
     if (dto.reason.trim().length < 2) throw new BadRequestException('Vui lòng nhập lý do cập nhật trạng thái');
     return this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT id FROM "EventParticipation" WHERE id = ${id} FOR UPDATE`;
-      const previous = await transaction.eventParticipation.findUnique({ where: { id } });
+      const previous = await transaction.eventParticipation.findUnique({ where: { id }, include: { media: true } });
       if (!previous) throw new NotFoundException('Không tìm thấy hồ sơ tham gia');
       if (dto.status === RegistrationStatus.CONFIRMED) {
+        if (!registrationMediaState(previous.media, previous.identityType).complete) {
+          throw new BadRequestException('Hồ sơ tham gia phải có ảnh đại diện và đủ CCCD hai mặt hoặc hộ chiếu trước khi duyệt');
+        }
         await transaction.eventParticipationMedia.updateMany({ where: {
           participationId: id, type: { not: AthleteMediaType.AVATAR }, verificationStatus: DocumentVerificationStatus.PENDING,
         }, data: { verificationStatus: DocumentVerificationStatus.VERIFIED, verifiedAt: new Date(), verifiedBy: actor } });

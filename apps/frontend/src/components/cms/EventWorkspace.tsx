@@ -4,7 +4,7 @@ import { ToastNotice } from '@/components/ToastNotice';
 
 import { imageUrl } from '@/lib/image-url';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -61,6 +61,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
+import { optimizeRegistrationMedia } from '@/lib/registration-media';
 import { InlineMatchSchedule } from './InlineMatchSchedule';
 import { MatchSchedulingWorkspace } from './scheduling/MatchSchedulingWorkspace';
 import { navigateSchedule } from './scheduling/schedule-ui';
@@ -629,6 +630,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
   const [registrationSaving, setRegistrationSaving] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File>();
   const [identityFiles, setIdentityFiles] = useState<Partial<Record<RegistrationIdentityDocument, File>>>({});
+  const stagedMedia = useRef(new Map<string, { file: File; id: string; token: string; expiresAt: number }>());
   const [createdRegistration, setCreatedRegistration] = useState<Registration>();
   const [registrationForm] = Form.useForm();
   const [editingRegistration, setEditingRegistration] = useState<Registration>();
@@ -637,6 +639,8 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
   const [categorySaving, setCategorySaving] = useState(false);
   const selectedCountryId = Form.useWatch(['athlete', 'countryId'], registrationForm);
   const selectedPaymentStatus = Form.useWatch('paymentStatus', registrationForm) || 'PENDING';
+  const selectedIdentityType = Form.useWatch(['athlete', 'identityType'], registrationForm) || 'CCCD';
+  useEffect(() => { stagedMedia.current.clear(); }, [createMode, createOpen]);
   const availableFederations = federations.filter((item) => !selectedCountryId || item.countryId === selectedCountryId);
   const sourceContact = sourceRegistration?.submission
     ? { name: sourceRegistration.submission.contactName, email: sourceRegistration.submission.contactEmail, phone: sourceRegistration.submission.contactPhone }
@@ -774,11 +778,35 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
 
   const registrationPayload = async () => {
     const values = await registrationForm.validateFields();
+    const fileEntries: Array<[string, File | undefined]> = [
+      ['AVATAR', avatarFile],
+      ['CCCD_FRONT', createMode !== 'new' || values.athlete?.identityType !== 'PASSPORT' ? identityFiles.CCCD_FRONT : undefined],
+      ['CCCD_BACK', createMode !== 'new' || values.athlete?.identityType !== 'PASSPORT' ? identityFiles.CCCD_BACK : undefined],
+      ['PASSPORT', createMode !== 'new' || values.athlete?.identityType === 'PASSPORT' ? identityFiles.PASSPORT : undefined],
+    ];
+    const fieldNames: Record<string, string> = { AVATAR: 'avatar', CCCD_FRONT: 'cccdFront', CCCD_BACK: 'cccdBack', PASSPORT: 'passport' };
+    const uploadEntries = await Promise.all(fileEntries.map(async ([type, file]) => {
+      if (!file) return null;
+      let reference = stagedMedia.current.get(type);
+      if (!reference || reference.file !== file || reference.expiresAt < Date.now() + 60_000) {
+        const body = new FormData();
+        body.append('type', type);
+        body.append('file', await optimizeRegistrationMedia(file));
+        const { data } = await api.post<{ id: string; token: string; expiresAt: string }>('/participant-auth/media-uploads', body, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        reference = { file, id: data.id, token: data.token, expiresAt: Date.parse(data.expiresAt) };
+        stagedMedia.current.set(type, reference);
+      }
+      return [fieldNames[type], { id: reference.id, token: reference.token }] as const;
+    }));
+    const mediaUploads = Object.fromEntries(uploadEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)));
     if (createMode === 'existing') {
       return {
         eventId,
         categoryId: values.categoryId,
         athleteId: values.athleteId,
+        mediaUploads,
         paymentStatus: event.paymentMode === 'FREE' ? undefined : values.paymentStatus || 'PENDING',
         paymentNote: values.paymentNote,
       };
@@ -795,36 +823,10 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
         height: athlete.height == null ? undefined : Number(athlete.height),
         weight: athlete.weight == null ? undefined : Number(athlete.weight),
       },
+      mediaUploads,
       paymentStatus: event.paymentMode === 'FREE' ? undefined : values.paymentStatus || 'PENDING',
       paymentNote: values.paymentNote,
     };
-  };
-
-  const uploadAthleteMedia = async (athleteId: string) => {
-    const failures: string[] = [];
-    if (avatarFile) {
-      const avatarData = new FormData();
-      avatarData.append('file', avatarFile);
-      try {
-        await api.post(`/athletes/${athleteId}/avatar`, avatarData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      } catch {
-        failures.push('ảnh đại diện');
-      }
-    }
-    for (const [type, file] of Object.entries(identityFiles) as Array<[RegistrationIdentityDocument, File]>) {
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        await api.post(`/athletes/${athleteId}/documents/${type}`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      } catch {
-        failures.push(type === 'CCCD_FRONT' ? 'CCCD mặt trước' : type === 'CCCD_BACK' ? 'CCCD mặt sau' : 'Hộ chiếu');
-      }
-    }
-    return failures;
   };
 
   const checkEligibility = async () => {
@@ -845,8 +847,8 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
   const createRegistration = async () => {
     setRegistrationSaving(true);
     try {
-      if (createMode === 'new' && (!identityFiles.CCCD_FRONT || !identityFiles.CCCD_BACK)) {
-        toast.error('VĐV mới cần tải đủ CCCD mặt trước và mặt sau. Hộ chiếu là tùy chọn.');
+      if (createMode === 'new' && (selectedIdentityType === 'PASSPORT' ? !identityFiles.PASSPORT : !identityFiles.CCCD_FRONT || !identityFiles.CCCD_BACK)) {
+        toast.error('VĐV mới cần tải đủ CCCD hai mặt hoặc hộ chiếu theo loại giấy tờ đã chọn.');
         return;
       }
       if (createMode === 'new' && !avatarFile) {
@@ -858,13 +860,9 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
       setEligibility(result);
       if (!result.eligible) return;
       const { data: registration } = await api.post('/participant-auth/admin/registrations', payload);
-      const documentFailures = await uploadAthleteMedia(registration.athlete.id);
       await refreshRegistrationData();
-      if (documentFailures.length) {
-        toast.error(`Đã tạo đăng ký nhưng chưa tải được: ${documentFailures.join(', ')}. Hãy bổ sung trong hồ sơ VĐV.`);
-      } else {
-        toast.success(createMode === 'new' ? 'Đã tạo VĐV, tải giấy tờ và xác nhận đăng ký.' : 'Đã thêm VĐV và xác nhận đăng ký.');
-      }
+      stagedMedia.current.clear();
+      toast.success(createMode === 'new' ? 'Đã tạo VĐV, lưu giấy tờ và xác nhận đăng ký.' : 'Đã thêm VĐV và xác nhận đăng ký.');
       setCreatedRegistration(registration);
       setCreateOpen(false);
       setEligibility(undefined);
@@ -872,6 +870,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
       setIdentityFiles({});
       registrationForm.resetFields();
     } catch (error: any) {
+      stagedMedia.current.clear();
       if (!error?.errorFields) toast.error(error.response?.data?.message || 'Không thể thêm vận động viên đăng ký.');
     } finally {
       setRegistrationSaving(false);
@@ -1273,7 +1272,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
         <Form
           form={registrationForm}
           layout="vertical"
-          initialValues={{ athlete: { gender: 'MALE' }, paymentStatus: 'PENDING' }}
+          initialValues={{ athlete: { gender: 'MALE', identityType: 'CCCD' }, paymentStatus: 'PENDING' }}
           onValuesChange={() => setEligibility(undefined)}
         >
           <ToastNotice className="!mb-4" type="info" showIcon message="Hồ sơ do quản trị viên tạo được xác nhận ngay. Thanh toán được theo dõi riêng." />
@@ -1305,23 +1304,25 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'height']} label="Chiều cao (cm)"><InputNumber min={1} max={300} className="w-full" /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'countryId']} label="Quốc gia" rules={[{ required: true, message: 'Vui lòng chọn quốc gia' }]}><Select showSearch optionFilterProp="label" options={countries.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}` }))} /></Form.Item></Col>
                 <Col xs={24} md={12}><Form.Item name={['athlete', 'federationId']} label="Đơn vị chủ quản"><Select allowClear showSearch optionFilterProp="label" placeholder="VĐV tự do" options={availableFederations.map((item) => ({ value: item.id, label: item.name }))} /></Form.Item></Col>
+                <Col xs={24} md={12}><Form.Item name={['athlete', 'identityType']} label="Loại giấy tờ" rules={[{ required: true }]}><Select options={[{ value: 'CCCD', label: 'Căn cước công dân' }, { value: 'PASSPORT', label: 'Hộ chiếu' }]} onChange={() => { registrationForm.setFieldValue(['athlete', 'documentNumber'], undefined); setIdentityFiles({}); }} /></Form.Item></Col>
+                <Col xs={24} md={12}><Form.Item name={['athlete', 'documentNumber']} label={selectedIdentityType === 'CCCD' ? 'Số căn cước' : 'Số hộ chiếu'} rules={[{ required: true, whitespace: true, message: 'Vui lòng nhập số giấy tờ' }]}><Input maxLength={30} /></Form.Item></Col>
               </Row>
             </div>
           )}
-          {createMode === 'new' && <AthleteAvatarPicker file={avatarFile} onChange={setAvatarFile} onError={(message) => toast.error(message)} />}
-          {createMode === 'new' && <div className="mt-4 rounded-xl border border-slate-300/15 p-4">
+          <AthleteAvatarPicker file={avatarFile} onChange={setAvatarFile} onError={(message) => toast.error(message)} />
+          <div className="mt-4 rounded-xl border border-slate-300/15 p-4">
             <div className="mb-3">
               <strong>Giấy tờ định danh</strong>
               <div className="mt-1 text-xs text-slate-500">
-                CCCD hai mặt là bắt buộc; hộ chiếu tải thêm nếu có.
+                {createMode === 'new' ? 'Tải lên ảnh đại diện và giấy tờ theo loại đã chọn trước khi đăng ký.' : 'Hồ sơ phải có ảnh đại diện và CCCD hai mặt hoặc hộ chiếu. Có thể bổ sung tệp còn thiếu tại đây.'}
               </div>
             </div>
             <Row gutter={[12, 12]}>
               {([
-                ['CCCD_FRONT', 'CCCD mặt trước', true],
-                ['CCCD_BACK', 'CCCD mặt sau', true],
-                ['PASSPORT', 'Hộ chiếu (nếu có)', false],
-              ] as Array<[RegistrationIdentityDocument, string, boolean]>).map(([type, label, required]) => (
+                ['CCCD_FRONT', 'CCCD mặt trước', createMode === 'new'],
+                ['CCCD_BACK', 'CCCD mặt sau', createMode === 'new'],
+                ['PASSPORT', 'Hộ chiếu', createMode === 'new'],
+              ] as Array<[RegistrationIdentityDocument, string, boolean]>).filter(([type]) => createMode !== 'new' || (selectedIdentityType === 'PASSPORT' ? type === 'PASSPORT' : type !== 'PASSPORT')).map(([type, label, required]) => (
                 <Col xs={24} md={8} key={type}>
                   <IdentityDocumentPicker
                     file={identityFiles[type]}
@@ -1333,7 +1334,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                 </Col>
               ))}
             </Row>
-          </div>}
+          </div>
           {event.paymentMode !== 'FREE' && event.registrationFee > 0 && (
             <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">

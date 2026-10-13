@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import { PartialType, PickType } from '@nestjs/mapped-types';
 import { CreateAthleteDto } from '../../athletes/dto/create-athlete.dto';
+import { RegistrationMediaUploadsDto } from './registration-media-upload.dto';
 import {
   IsDateString,
   IsArray,
@@ -170,7 +171,15 @@ export class CreatePublicRegistrationDto {
   categoryId: string;
 }
 
-export class AdminRegistrationAthleteDto extends PartialType(PickType(CreateAthleteDto, ['identityType', 'documentNumber', 'address'] as const)) {
+export class AdminRegistrationAthleteDto extends PartialType(PickType(CreateAthleteDto, ['address'] as const)) {
+  @IsIn(['CCCD', 'PASSPORT'])
+  identityType: 'CCCD' | 'PASSPORT';
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  documentNumber: string;
+
   @IsString()
   @MinLength(1)
   firstName: string;
@@ -232,6 +241,11 @@ export class AdminCreateRegistrationDto {
   @ValidateNested()
   @Type(() => AdminRegistrationAthleteDto)
   athlete?: AdminRegistrationAthleteDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RegistrationMediaUploadsDto)
+  mediaUploads?: RegistrationMediaUploadsDto;
 
   @IsOptional()
   @IsIn([PaymentStatus.PENDING, PaymentStatus.PAID])

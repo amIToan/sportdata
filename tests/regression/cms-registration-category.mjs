@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const require = createRequire(new URL('../../apps/backend/package.json', import.meta.url));
 const { ParticipantsService } = require('./dist/src/participants/participants.service.js');
@@ -18,11 +19,18 @@ const category = (id, discipline, extra = {}) => ({
   maxEntriesPerCountry: null, ...extra,
 });
 
+const uploadedMedia = (identityType = 'CCCD') => [
+  { type: 'AVATAR', storageKey: 'avatars/test.png', mimeType: 'image/png', size: 100, verificationStatus: null },
+  ...(identityType === 'CCCD' ? ['CCCD_FRONT', 'CCCD_BACK'] : ['PASSPORT']).map((type) => ({
+    type, storageKey: `documents/${type}.pdf`, mimeType: 'application/pdf', size: 100, verificationStatus: 'VERIFIED',
+  })),
+];
+
 function fixture({ status = 'CONFIRMED', entry = true, athlete = {}, categories = [], paymentMode = 'MANUAL' } = {}) {
   const event = { id: 'event', startDate: new Date('2035-01-01'), ageLimitMode: 'CATEGORY',
     allowIndependentAthletes: true, participatingFederations: [], paymentMode, registrationFee: 100000, registrationCurrency: 'VND' };
   let profile = { id: 'athlete', fullName: 'Nguyen Van A', gender: 'MALE', weight: 65,
-    birthDate: new Date('2000-01-01'), countryId: 'VIE', federationId: null, media: [], ...athlete };
+    birthDate: new Date('2000-01-01'), countryId: 'VIE', federationId: null, media: uploadedMedia(), ...athlete };
   const allCategories = [category('fighting-69', 'FIGHTING'), category('fighting-77', 'FIGHTING'),
     category('gi-77', 'NEWAZA', { uniform: 'GI' }), category('nogi-77', 'NEWAZA', { uniform: 'NO_GI' }),
     category('contact-77', 'CONTACT'), category('full-contact-77', 'FULL_CONTACT'), ...categories];
@@ -31,7 +39,7 @@ function fixture({ status = 'CONFIRMED', entry = true, athlete = {}, categories 
       status, ticketCode: 'A6-UNCHANGED', paymentStatus: 'PAID', feeAmount: 100000, currency: 'VND' }],
     entries: entry ? [{ id: 'entry', athleteId: 'athlete', countryId: 'VIE', eventId: 'event', categoryId: 'fighting-69',
       status: status === 'CONFIRMED' ? 'VERIFIED' : 'WITHDRAWN', seed: 2, bib: '007' }] : [],
-    draw: [], match: [], heat: [], roundRobinGroup: [], notifications: [], paymentHistory: [],
+    draw: [], match: [], heat: [], roundRobinGroup: [], notifications: [], paymentHistory: [], uploads: [], removedKeys: [],
   };
   const hydrate = (record) => record && { ...record, event, athlete: profile,
     category: allCategories.find((item) => item.id === record.categoryId) };
@@ -40,6 +48,7 @@ function fixture({ status = 'CONFIRMED', entry = true, athlete = {}, categories 
     if (value && typeof value === 'object') {
       if ('not' in value) return record[key] !== value.not;
       if ('in' in value) return value.in.includes(record[key]);
+      if ('gt' in value) return record[key] > value.gt;
     }
     return record[key] === value;
   });
@@ -67,18 +76,38 @@ function fixture({ status = 'CONFIRMED', entry = true, athlete = {}, categories 
       records.forEach((record) => Object.assign(record, data));
       return { count: records.length };
     },
+    deleteMany: async ({ where }) => {
+      const selected = state[name].filter((record) => matches(record, where));
+      state[name] = state[name].filter((record) => !selected.includes(record));
+      return { count: selected.length };
+    },
   });
   const prisma = {
     eventRegistration: model('registrations'), competitionEntry: model('entries'),
     paymentStatusHistory: model('paymentHistory'),
+    participantMediaUpload: model('uploads'),
     event: { findUnique: async ({ include }) => ({ ...event, categories: allCategories.filter((item) => item.id === include.categories.where.id) }) },
     country: { findUnique: async ({ where }) => where.id === 'VIE' ? { id: 'VIE' } : null },
     category: { findFirst: async ({ where }) => allCategories.find((item) => item.id === where.id && item.eventId === where.events.some.id) },
     athlete: {
       findUnique: async ({ where }) => where.id === profile.id ? profile : null,
       findUniqueOrThrow: async ({ where }) => { assert.equal(where.id, profile.id); return profile; },
-      create: async ({ data }) => { profile = { ...data, id: 'new-athlete', media: [] }; return profile; },
-      update: async () => profile,
+      create: async ({ data }) => { profile = { ...data, id: 'new-athlete', media: data.media?.create || [] }; return profile; },
+      update: async ({ data }) => { Object.assign(profile, data); return profile; },
+    },
+    athleteMedia: {
+      findMany: async () => profile.media,
+      upsert: async ({ where, create, update }) => {
+        const previous = profile.media.find((item) => item.type === where.athleteId_type.type);
+        if (previous) { Object.assign(previous, update); return previous; }
+        profile.media.push(create);
+        return create;
+      },
+      updateMany: async ({ where, data }) => {
+        const rows = profile.media.filter((item) => matches(item, Object.fromEntries(Object.entries(where).filter(([key]) => key !== 'athleteId'))));
+        rows.forEach((item) => Object.assign(item, data));
+        return { count: rows.length };
+      },
     },
     $executeRaw: async () => 1, $queryRaw: async () => [],
     ...Object.fromEntries(['draw', 'match', 'heat', 'roundRobinGroup'].map((name) => [name, model(name)])),
@@ -95,10 +124,21 @@ function fixture({ status = 'CONFIRMED', entry = true, athlete = {}, categories 
     state.entries.push(created);
     return created;
   };
-  const service = new ParticipantsService(prisma, {}, {}, {}, {}, {}, {
+  const service = new ParticipantsService(prisma, { deleteQuietly: async (key) => state.removedKeys.push(key) }, {}, {}, {},
+    { get: async () => ({ values: { identityOcrEnabled: true } }) }, {
     notifyRegistration: async (_database, registrationId, type, title, detail) => state.notifications.push({ registrationId, type, title, detail }),
   }, { lock: async () => {}, assertNew: async () => {}, normalize: () => ({ documentHash: 'test-document' }) });
-  return { service, state: () => state, profile, allCategories };
+  const stage = (identityType = 'CCCD') => {
+    const keys = { AVATAR: 'avatar', CCCD_FRONT: 'cccdFront', CCCD_BACK: 'cccdBack', PASSPORT: 'passport' };
+    return Object.fromEntries(uploadedMedia(identityType).map((media, index) => {
+      const id = `staged-${index}`;
+      const token = `staged-token-${index}`;
+      state.uploads.push({ ...media, storageKey: `staged/${media.type}`, id,
+        tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date('2035-01-01') });
+      return [keys[media.type], { id, token }];
+    }));
+  };
+  return { service, state: () => state, profile, allCategories, stage };
 }
 
 const changed = fixture();
@@ -181,20 +221,62 @@ for (const [paymentMode, selectedPayment, expectedPayment] of [
     const dto = { eventId: 'event', categoryId: 'gi-77', paymentStatus: selectedPayment,
       ...(isNew ? { athlete: { firstName: 'Nguyen', lastName: 'Van B', fullName: 'Nguyen Van B',
         email: 'new@example.test', phone: '0901234567', gender: 'MALE', weight: 65,
-        birthDate: '2000-01-01', countryId: 'VIE' } } : { athleteId: 'athlete' }) };
+        birthDate: '2000-01-01', countryId: 'VIE', identityType: 'CCCD', documentNumber: '123456789012' },
+        mediaUploads: f.stage() } : { athleteId: 'athlete' }) };
     const eligibility = await f.service.checkAdminRegistrationEligibility(dto);
     assert.equal(eligibility.eligible, true);
     assert.ok(eligibility.warnings.every((message) => !message.includes('chờ duyệt')));
     const created = await f.service.createAdminRegistration(dto, 'admin@example.test');
-    assert.equal(created.status, 'CONFIRMED', 'CMS registrations must be approved immediately, even without verified documents or payment');
+    assert.equal(created.status, 'CONFIRMED', 'CMS registrations with complete files are approved immediately');
     assert.equal(created.paymentStatus, expectedPayment, 'Immediate approval must not change the selected payment state');
     assert.equal(created.feeAmount, paymentMode === 'FREE' ? 0 : 100000);
     assert.equal(created.statusChangedBy, 'admin@example.test');
-    assert.deepEqual(created.athlete.media, [], 'Approval must not mark documents as verified');
+    assert.equal(created.athlete.media.length, 3, 'Actual portrait and both identity documents must be persisted');
+    assert.ok(created.athlete.media.every((item) => item.storageKey && item.size > 0));
+    if (isNew) {
+      assert.equal(f.state().uploads.length, 0, 'Staging references are consumed in the creation transaction');
+      assert.ok(created.athlete.media.filter((item) => item.type !== 'AVATAR').every((item) => item.verificationStatus === 'VERIFIED'
+        && item.verifiedBy === 'admin@example.test'), 'CMS records the administrator who checked the new documents');
+    }
     assert.ok(f.state().entries.some((item) => item.categoryId === 'gi-77' && item.athleteId === created.athleteId && item.status === 'VERIFIED'));
     assert.equal(f.state().paymentHistory.length, expectedPayment === 'PAID' ? 1 : 0);
     await assert.rejects(f.service.createAdminRegistration({ eventId: 'event', categoryId: 'gi-77', athleteId: created.athleteId }), /đã đăng ký/);
   }
+}
+
+const newAthlete = { firstName: 'Nguyen', lastName: 'Van B', fullName: 'Nguyen Van B',
+  email: 'new@example.test', phone: '0901234567', gender: 'MALE', weight: 65,
+  birthDate: '2000-01-01', countryId: 'VIE', identityType: 'PASSPORT', documentNumber: 'P1234567' };
+for (const athlete of [{ media: [] }, { media: uploadedMedia().filter((item) => item.type !== 'AVATAR') },
+  { media: uploadedMedia().map((item) => item.type === 'CCCD_BACK' ? { ...item, storageKey: null } : item) }]) {
+  const f = fixture({ athlete });
+  const dto = { eventId: 'event', categoryId: 'gi-77', athleteId: 'athlete' };
+  assert.equal((await f.service.checkAdminRegistrationEligibility(dto)).eligible, false);
+  await assert.rejects(f.service.createAdminRegistration(dto), /ảnh|CCCD|hộ chiếu|giấy tờ/);
+  assert.equal(f.state().registrations.length, 1, 'CMS rejects incomplete legacy profiles before creating a registration');
+}
+const newWithoutFiles = fixture();
+const newDto = { eventId: 'event', categoryId: 'gi-77', athlete: newAthlete };
+assert.equal((await newWithoutFiles.service.checkAdminRegistrationEligibility(newDto)).eligible, false);
+await assert.rejects(newWithoutFiles.service.createAdminRegistration(newDto), /ảnh|CCCD|hộ chiếu|giấy tờ/);
+const passport = fixture({ paymentMode: 'FREE' });
+const passportDto = { ...newDto, mediaUploads: passport.stage('PASSPORT') };
+assert.equal((await passport.service.checkAdminRegistrationEligibility(passportDto)).eligible, true);
+const passportRegistration = await passport.service.createAdminRegistration(passportDto);
+assert.deepEqual(passportRegistration.athlete.media.map((item) => item.type).sort(), ['AVATAR', 'PASSPORT']);
+assert.equal(passport.state().uploads.length, 0);
+for (const corrupt of [
+  (dto) => { delete dto.mediaUploads.avatar; },
+  (dto) => { dto.mediaUploads.passport.token = 'invalid-token'; },
+  (_dto, f) => { f.state().uploads[1].expiresAt = new Date('2000-01-01'); },
+  (_dto, f) => { f.state().uploads[1].storageKey = null; },
+  (_dto, f) => { f.state().uploads[0].mimeType = 'application/pdf'; },
+]) {
+  const f = fixture({ paymentMode: 'FREE' });
+  const dto = { ...newDto, mediaUploads: f.stage('PASSPORT') };
+  corrupt(dto, f);
+  await assert.rejects(f.service.createAdminRegistration(dto), /ảnh|CCCD|hộ chiếu|giấy tờ|tệp|JPG|PDF/i);
+  assert.equal(f.state().registrations.length, 1);
 }
 const ineligibleAdmin = fixture({ athlete: { weight: 80 } });
 await assert.rejects(ineligibleAdmin.service.createAdminRegistration({ eventId: 'event', categoryId: 'gi-77', athleteId: 'athlete' }), /tối đa/);

@@ -269,13 +269,6 @@ export class ParticipantsController {
     );
   }
 
-  @Get('admin/accounts')
-  @UseGuards(JwtAuthGuard)
-  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN, UserRole.READ_ONLY)
-  federationAccounts() {
-    return this.service.listAccounts();
-  }
-
   @Patch('admin/accounts/:id/status')
   @UseGuards(JwtAuthGuard)
   @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)

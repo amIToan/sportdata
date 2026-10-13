@@ -83,6 +83,13 @@ function fixture(paymentMode = 'MANUAL', identityOcrEnabled = false) {
     paymentStatusHistory: model('paymentHistory'), registrationStatusHistory: model('statusHistory'),
     athleteMedia: {
       findMany: async ({ where }) => state.athletes.find((athlete) => athlete.id === where.athleteId).media,
+      upsert: async ({ where, create, update }) => {
+        const athlete = state.athletes.find((item) => item.id === where.athleteId_type.athleteId);
+        const previous = athlete.media.find((item) => item.type === where.athleteId_type.type);
+        if (previous) { Object.assign(previous, update); return previous; }
+        athlete.media.push(create);
+        return create;
+      },
       updateMany: async ({ where: { athleteId, ...where }, data }) => {
         const records = state.athletes.find((athlete) => athlete.id === athleteId).media.filter((record) => matches(record, where));
         records.forEach((record) => Object.assign(record, data));
@@ -230,6 +237,58 @@ for (const ocrEnabled of [false, true]) {
   assert.ok(documents.every((document) => document.verificationStatus === (ocrEnabled ? 'PENDING' : 'VERIFIED')));
   if (!ocrEnabled) assert.ok(documents.every((document) => document.verifiedBy === 'SYSTEM:OCR_DISABLED' && document.verifiedAt instanceof Date));
   assert.deepEqual(reused.stats(), { uploads: 3, identityChecks: 1 });
+}
+
+// Retrying an already registered category must persist newly supplied missing files.
+const legacy = fixture('FREE');
+const legacyInitial = await legacy.service.createGuestRegistrations(legacy.payload({ ...legacy.athlete, categoryId: 'category-0' }), legacy.files);
+legacy.state().athletes[0].media = legacy.state().athletes[0].media.filter((item) => item.type === 'CCCD_FRONT');
+const legacyLookup = await legacy.service.lookupAthlete({ eventId: 'event', ...legacy.athlete });
+assert.equal(legacyLookup.athlete.hasAvatar, false);
+assert.equal(legacyLookup.athlete.hasIdentity, false);
+const legacyReuse = await legacy.reuse();
+await assert.rejects(legacy.service.createGuestRegistrations(legacy.payload({ ...legacyReuse, categoryId: 'category-0' }), []), /ảnh|CCCD|giấy tờ/);
+const replacementFiles = legacy.files.map(({ storageKey: _previousStorageKey, ...file }) => ({ ...file }));
+const legacyRetry = await legacy.service.createGuestRegistrations(legacy.payload({ ...legacyReuse, categoryId: 'category-0' }), replacementFiles);
+assert.equal(legacyRetry.registrations[0].existing, true);
+assert.equal(legacyRetry.registrations[0].ticketCode, legacyInitial.registrations[0].ticketCode);
+assert.equal(legacy.state().registrations.length, 1);
+assert.equal(legacy.state().athletes.length, 1);
+assert.equal(legacy.state().submissions.length, 1, 'Repair retries do not create another submission or fee');
+assert.deepEqual(legacy.state().athletes[0].media.map((item) => item.type).sort(), ['AVATAR', 'CCCD_BACK', 'CCCD_FRONT']);
+assert.ok(legacy.state().athletes[0].media.every((item) => item.storageKey && item.size > 0));
+const legacyFixedLookup = await legacy.service.lookupAthlete({ eventId: 'event', ...legacy.athlete });
+assert.equal(legacyFixedLookup.athlete.hasAvatar, true);
+assert.equal(legacyFixedLookup.athlete.hasIdentity, true);
+assert.deepEqual(legacy.stats(), { uploads: 6, identityChecks: 1 });
+
+const partialIdentity = fixture('FREE');
+const partialInitial = await partialIdentity.service.createGuestRegistrations(partialIdentity.payload({ ...partialIdentity.athlete,
+  categoryId: 'category-0' }), partialIdentity.files);
+partialIdentity.state().athletes[0].media = partialIdentity.state().athletes[0].media.filter((item) => item.type !== 'CCCD_FRONT');
+const retainedBack = partialIdentity.state().athletes[0].media.find((item) => item.type === 'CCCD_BACK').storageKey;
+const { storageKey: _frontStorageKey, ...newFront } = partialIdentity.files.find((item) => item.fieldname.endsWith('_cccdFront'));
+const partialRetry = await partialIdentity.service.createGuestRegistrations(partialIdentity.payload({ ...await partialIdentity.reuse(),
+  categoryId: 'category-0' }), [{ ...newFront }]);
+assert.equal(partialRetry.registrations[0].ticketCode, partialInitial.registrations[0].ticketCode);
+assert.equal(partialIdentity.state().athletes[0].media.find((item) => item.type === 'CCCD_BACK').storageKey, retainedBack,
+  'Repair only replaces the supplied front image and reuses the existing back image');
+assert.equal(partialIdentity.state().athletes[0].media.length, 3);
+assert.deepEqual(partialIdentity.stats(), { uploads: 4, identityChecks: 1 });
+
+// Metadata-only legacy media must be reported missing and cannot be reused without real uploads.
+for (const invalidate of [
+  (media) => { media.forEach((item) => { item.storageKey = null; }); },
+  (media) => { media.forEach((item) => { item.size = 0; }); },
+  (media) => { media.find((item) => item.type === 'AVATAR').mimeType = 'application/pdf'; },
+]) {
+  const f = fixture('FREE');
+  await f.service.createGuestRegistrations(f.payload({ ...f.athlete, categoryId: 'category-0' }), f.files);
+  invalidate(f.state().athletes[0].media);
+  const lookup = await f.service.lookupAthlete({ eventId: 'event', ...f.athlete });
+  assert.equal(lookup.athlete.hasAvatar, false);
+  await assert.rejects(f.service.createGuestRegistrations(f.payload({ ...await f.reuse(), categoryId: 'category-4' }), []), /ảnh|CCCD|giấy tờ/);
+  assert.equal(f.state().registrations.length, 1);
 }
 
 // Group submissions map category tickets to athletes and charge all eight discipline registrations.

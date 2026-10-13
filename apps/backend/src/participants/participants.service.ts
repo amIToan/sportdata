@@ -51,6 +51,8 @@ import { AthleteIdentityService } from '../athletes/athlete-identity.service';
 import { CheckAthleteIdentityDto } from './dto/check-athlete-identity.dto';
 import { LookupAthleteDto } from './dto/lookup-athlete.dto';
 import { registrationDisciplineKey } from './registration-discipline';
+import { registrationMediaSelect, registrationMediaState } from './registration-media-state';
+import { usableAccountMedia } from './participant-account-profile';
 
 const mediaSelect = {
   id: true,
@@ -179,8 +181,8 @@ export class ParticipantsService {
         gender: athlete.gender, countryId: athlete.countryId, federationId: athlete.federationId,
         countryName: athlete.country.name, federationName: athlete.federation?.name,
         weight: athlete.weight, height: athlete.height,
-        hasAvatar: athlete.media.some((media) => media.type === AthleteMediaType.AVATAR),
-        hasIdentity: this.identityDocumentState(athlete.media).complete },
+        hasAvatar: registrationMediaState(athlete.media, dto.identityType).hasAvatar,
+        hasIdentity: registrationMediaState(athlete.media, dto.identityType).hasIdentityDocuments },
       registrations: registrations.map((item) => ({ ticketCode: item.ticketCode, status: item.status,
         paymentStatus: item.paymentStatus, categoryId: item.categoryId, feeAmount: item.feeAmount })),
       registration: registration ? { ticketCode: registration.ticketCode, status: registration.status,
@@ -977,16 +979,19 @@ export class ParticipantsService {
       const avatar = fileMap.get(`athlete_${index}_avatar`)
         || stagedFile(athlete.mediaUploads?.avatar, AthleteMediaType.AVATAR, index);
       const identityType: 'CCCD' | 'PASSPORT' = athlete.identityType === 'PASSPORT' ? 'PASSPORT' : 'CCCD';
-      if (!avatar && !existingAthlete?.media.some((media) => media.type === AthleteMediaType.AVATAR)) {
+      const existingState = registrationMediaState(existingAthlete?.media || [], identityType);
+      const existingTypes = new Set((existingAthlete?.media || []).filter(usableAccountMedia).map((media) => media.type));
+      if (!avatar && !existingState.hasAvatar) {
         throw new BadRequestException(`Vận động viên ${index + 1}: cần ảnh đại diện`);
       }
-      if (!existingAthlete || !this.identityDocumentState(existingAthlete.media).complete) {
-      if (identityType === 'CCCD' && (!cccdFront || !cccdBack)) {
-        throw new BadRequestException(`Vận động viên ${index + 1}: cần đủ CCCD mặt trước và mặt sau`);
-      }
-      if (identityType === 'PASSPORT' && !passport) {
-        throw new BadRequestException(`Vận động viên ${index + 1}: cần ảnh hộ chiếu`);
-      }
+      if (!existingState.hasIdentityDocuments) {
+        if (identityType === 'CCCD' && ((!cccdFront && !existingTypes.has(AthleteMediaType.CCCD_FRONT))
+          || (!cccdBack && !existingTypes.has(AthleteMediaType.CCCD_BACK)))) {
+          throw new BadRequestException(`Vận động viên ${index + 1}: cần đủ CCCD mặt trước và mặt sau`);
+        }
+        if (identityType === 'PASSPORT' && !passport && !existingTypes.has(AthleteMediaType.PASSPORT)) {
+          throw new BadRequestException(`Vận động viên ${index + 1}: cần ảnh hộ chiếu`);
+        }
       }
       if (cccdFront) this.validateFile(AthleteMediaType.CCCD_FRONT, cccdFront);
       if (cccdBack) this.validateFile(AthleteMediaType.CCCD_BACK, cccdBack);
@@ -1014,6 +1019,7 @@ export class ParticipantsService {
     });
 
     const referenceCode = this.submissionReference();
+    const replacedStorageKeys = new Set<string>();
     const persistRegistration = () => this.prisma.$transaction(async (transaction) => {
       await this.athleteIdentity.lock(transaction);
       let submission: { id: string; type: RegistrationSubmissionType } | null = null;
@@ -1046,7 +1052,28 @@ export class ParticipantsService {
           }
         }
         const newCategories = item.categories.filter((category) => !existingRegistrations.some((registered) => registered.categoryId === category.id));
+        const media = [
+          item.files.avatar && this.mediaCreate(AthleteMediaType.AVATAR, item.files.avatar, false, undefined, autoVerifyIdentity),
+          item.files.cccdFront && this.mediaCreate(AthleteMediaType.CCCD_FRONT, item.files.cccdFront, true, item.athlete.identityOcr, autoVerifyIdentity),
+          item.files.cccdBack && this.mediaCreate(AthleteMediaType.CCCD_BACK, item.files.cccdBack, true, undefined, autoVerifyIdentity),
+          item.files.passport && this.mediaCreate(AthleteMediaType.PASSPORT, item.files.passport, true, item.athlete.identityOcr, autoVerifyIdentity),
+        ].filter(Boolean) as Prisma.AthleteMediaCreateWithoutAthleteInput[];
+        if (item.existingAthlete) {
+          const previousMedia = await transaction.athleteMedia.findMany({ where: { athleteId: item.existingAthlete.id }, select: registrationMediaSelect });
+          for (const document of media) {
+            const previousKey = previousMedia.find((entry) => entry.type === document.type)?.storageKey;
+            await transaction.athleteMedia.upsert({
+              where: { athleteId_type: { athleteId: item.existingAthlete.id, type: document.type } },
+              create: { ...document, athleteId: item.existingAthlete.id }, update: document,
+            });
+            if (previousKey && previousKey !== document.storageKey) replacedStorageKeys.add(previousKey);
+          }
+        }
         if (item.existingAthlete && autoVerifyIdentity) await this.autoVerifyIdentityMedia(item.existingAthlete.id, transaction);
+        const existingMedia = item.existingAthlete ? await transaction.athleteMedia.findMany({
+          where: { athleteId: item.existingAthlete.id }, select: registrationMediaSelect,
+        }) : undefined;
+        if (existingMedia) this.assertRequiredRegistrationMedia(registrationMediaState(existingMedia, item.identityInput.identityType));
         for (const category of item.categories) {
           const registered = existingRegistrations.find((registration) => registration.categoryId === category.id);
           if (!registered) continue;
@@ -1065,12 +1092,6 @@ export class ParticipantsService {
         const identity = item.existingAthlete ? undefined : await this.athleteIdentity.assertNew(transaction, item.identityInput);
         const currentSubmission = await ensureSubmission();
         const name = this.splitName(item.fullName);
-        const media = [
-          item.files.avatar && this.mediaCreate(AthleteMediaType.AVATAR, item.files.avatar, false, undefined, autoVerifyIdentity),
-          item.files.cccdFront && this.mediaCreate(AthleteMediaType.CCCD_FRONT, item.files.cccdFront, true, item.athlete.identityOcr, autoVerifyIdentity),
-          item.files.cccdBack && this.mediaCreate(AthleteMediaType.CCCD_BACK, item.files.cccdBack, true, undefined, autoVerifyIdentity),
-          item.files.passport && this.mediaCreate(AthleteMediaType.PASSPORT, item.files.passport, true, item.athlete.identityOcr, autoVerifyIdentity),
-        ].filter(Boolean) as Prisma.AthleteMediaCreateWithoutAthleteInput[];
         const createdAthlete = item.existingAthlete
           ? await transaction.athlete.findUniqueOrThrow({ where: { id: item.existingAthlete.id } })
           : await transaction.athlete.create({
@@ -1100,18 +1121,7 @@ export class ParticipantsService {
             where: { id: createdAthlete.id }, data: { participantAccountId: owner.id },
           });
         }
-        if (item.existingAthlete) {
-          for (const document of media) {
-            await transaction.athleteMedia.upsert({
-              where: { athleteId_type: { athleteId: createdAthlete.id, type: document.type } },
-              create: { ...document, athleteId: createdAthlete.id }, update: document,
-            });
-          }
-        }
-        const existingMedia = item.existingAthlete ? await transaction.athleteMedia.findMany({
-          where: { athleteId: createdAthlete.id }, select: { type: true, verificationStatus: true },
-        }) : undefined;
-        const identityVerified = existingMedia ? this.identityDocumentState(existingMedia).verified : autoVerifyIdentity;
+        const identityVerified = existingMedia ? registrationMediaState(existingMedia, item.identityInput.identityType).verified : autoVerifyIdentity;
         for (const category of newCategories) {
           const payment = this.registrationPayment(event);
           const canConfirmImmediately = identityVerified
@@ -1207,6 +1217,7 @@ export class ParticipantsService {
         throw error;
       }
     })();
+    await Promise.all([...replacedStorageKeys].map((key) => this.storage.deleteQuietly(key)));
     const newRegistrations = result.registrations.filter((registration) => !registration.existing);
     const notificationResults = await Promise.allSettled(newRegistrations.map((registration) => (
       this.notifications.notifyRegistration(
@@ -1268,18 +1279,13 @@ export class ParticipantsService {
       await this.autoVerifyIdentityMedia(profile.athlete.id);
       profile = await this.getProfile(accountId);
     }
-    const identity = this.identityDocumentState(profile.athlete.media);
-    if (!profile.athlete.media.some((item) => item.type === AthleteMediaType.AVATAR)) {
-      throw new BadRequestException('Cần tải ảnh đại diện trước khi đăng ký');
-    }
-    if (!identity.complete) {
-      throw new BadRequestException('Cần tải đủ CCCD hai mặt hoặc hộ chiếu trước khi đăng ký');
-    }
-
     let canConfirmImmediately = false;
     try {
       const registration = await this.prisma.$transaction(async (transaction) => {
         await this.athleteIdentity.lock(transaction);
+        const media = await transaction.athleteMedia.findMany({ where: { athleteId: profile.athlete.id }, select: registrationMediaSelect });
+        const identity = registrationMediaState(media, profile.identityType);
+        this.assertRequiredRegistrationMedia(identity);
         const existing = await transaction.eventRegistration.findMany({
           where: { eventId: event.id, athleteId: profile.athlete.id }, include: { category: true },
         });
@@ -1699,9 +1705,18 @@ export class ParticipantsService {
       throw new BadRequestException(context.reasons.join('. '));
     }
 
+    const replacedStorageKeys = new Set<string>();
     try {
       const created = await this.prisma.$transaction(async (transaction) => {
         await this.athleteIdentity.lock(transaction);
+        const uploads = await this.resolveAdminMediaUploads(dto, transaction);
+        const media = uploads.map((upload) => ({
+          type: upload.type, storageKey: upload.storageKey, mimeType: upload.mimeType, size: upload.size,
+          verificationStatus: upload.type === AthleteMediaType.AVATAR ? null : DocumentVerificationStatus.VERIFIED,
+          verifiedAt: upload.type === AthleteMediaType.AVATAR ? null : new Date(),
+          verifiedBy: upload.type === AthleteMediaType.AVATAR ? null : changedBy || 'CMS',
+          verificationNote: upload.type === AthleteMediaType.AVATAR ? null : 'Quản trị viên kiểm tra khi tạo hồ sơ tham gia.',
+        }));
         if (!context.athleteId) {
           await this.athleteIdentity.assertNew(transaction, {
             ...dto.athlete!, birthDate: new Date(dto.athlete!.birthDate),
@@ -1710,7 +1725,7 @@ export class ParticipantsService {
         const athlete = context.athleteId
           ? await transaction.athlete.findUniqueOrThrow({
               where: { id: context.athleteId },
-              include: { media: { select: { type: true, verificationStatus: true } } },
+              include: { media: { select: registrationMediaSelect } },
             })
           : await transaction.athlete.create({
               data: {
@@ -1726,9 +1741,30 @@ export class ParticipantsService {
                 height: dto.athlete!.height,
                 countryId: dto.athlete!.countryId,
                 federationId: dto.athlete!.federationId || null,
+                media: { create: media },
               },
-              include: { media: { select: { type: true, verificationStatus: true } } },
+              include: { media: { select: registrationMediaSelect } },
             });
+        if (context.athleteId) {
+          for (const document of media) {
+            const previousKey = athlete.media.find((item) => item.type === document.type)?.storageKey;
+            await transaction.athleteMedia.upsert({
+              where: { athleteId_type: { athleteId: athlete.id, type: document.type } },
+              create: { ...document, athleteId: athlete.id }, update: document,
+            });
+            if (previousKey && previousKey !== document.storageKey) replacedStorageKeys.add(previousKey);
+          }
+        }
+        const finalMedia = context.athleteId
+          ? await transaction.athleteMedia.findMany({ where: { athleteId: athlete.id }, select: registrationMediaSelect })
+          : athlete.media;
+        this.assertRequiredRegistrationMedia(registrationMediaState(finalMedia, dto.athlete?.identityType));
+        if (uploads.length) {
+          const consumed = await transaction.participantMediaUpload.deleteMany({
+            where: { id: { in: uploads.map((upload) => upload.id) }, expiresAt: { gt: new Date() } },
+          });
+          if (consumed.count !== uploads.length) throw new BadRequestException('Tệp đã được sử dụng hoặc hết hạn. Vui lòng tải lại.');
+        }
         const existing = await transaction.eventRegistration.findMany({
           where: { eventId: context.event.id, athleteId: athlete.id }, include: { category: true },
         });
@@ -1784,6 +1820,7 @@ export class ParticipantsService {
           include: this.registrationInclude(),
         });
       });
+      await Promise.all([...replacedStorageKeys].map((key) => this.storage.deleteQuietly(key)));
       await this.notifications.notifyRegistration(
         this.prisma,
         created.id,
@@ -1818,7 +1855,7 @@ export class ParticipantsService {
     const existingAthlete = dto.athleteId
       ? await this.prisma.athlete.findUnique({
           where: { id: dto.athleteId },
-          include: { media: { select: { type: true, verificationStatus: true } } },
+          include: { media: { select: registrationMediaSelect } },
         })
       : null;
     if (dto.athleteId && !existingAthlete) throw new NotFoundException('Không tìm thấy vận động viên');
@@ -1876,13 +1913,21 @@ export class ParticipantsService {
       if (existing.some((registration) => registrationDisciplineKey(registration.category) === registrationDisciplineKey(category))) {
         reasons.push('Vận động viên đã đăng ký một hạng đấu trong nội dung này');
       }
-      if (!this.identityDocumentState(existingAthlete.media).complete) {
-        warnings.push('Hồ sơ chưa có đủ CCCD hai mặt hoặc hộ chiếu; hãy bổ sung giấy tờ trong hồ sơ VĐV');
-      } else if (!this.identityDocumentState(existingAthlete.media).verified) {
+      if (!registrationMediaState(existingAthlete.media).verified) {
         warnings.push('Giấy tờ chưa được xác thực; có thể xác thực trong hồ sơ VĐV');
       }
-    } else {
-      warnings.push('VĐV mới chưa có giấy tờ định danh; hãy bổ sung trong hồ sơ sau khi tạo');
+    }
+
+    const uploads = await this.resolveAdminMediaUploads(dto);
+    const combinedMedia = new Map((existingAthlete?.media || []).map((media) => [media.type, media]));
+    for (const upload of uploads) combinedMedia.set(upload.type, {
+      type: upload.type, storageKey: upload.storageKey, mimeType: upload.mimeType, size: upload.size, verificationStatus: null,
+    });
+    const mediaState = registrationMediaState([...combinedMedia.values()], dto.athlete?.identityType);
+    if (!mediaState.hasAvatar) reasons.push('Hồ sơ phải có ảnh đại diện trước khi đăng ký');
+    if (!mediaState.hasIdentityDocuments) reasons.push('Hồ sơ phải có đủ CCCD hai mặt hoặc hộ chiếu trước khi đăng ký');
+    if (dto.athlete && !this.athleteIdentity.normalize({ ...dto.athlete, birthDate: new Date(dto.athlete.birthDate) }).documentHash) {
+      reasons.push('Vui lòng nhập số CCCD hoặc hộ chiếu của VĐV');
     }
 
     if (category.maxEntriesPerCountry) {
@@ -1900,6 +1945,31 @@ export class ParticipantsService {
     }
 
     return { event, category, athlete, athleteId: existingAthlete?.id, reasons: [...new Set(reasons)], warnings };
+  }
+
+  private async resolveAdminMediaUploads(dto: AdminCreateRegistrationDto, database: Prisma.TransactionClient = this.prisma) {
+    const types = { avatar: AthleteMediaType.AVATAR, cccdFront: AthleteMediaType.CCCD_FRONT,
+      cccdBack: AthleteMediaType.CCCD_BACK, passport: AthleteMediaType.PASSPORT } as const;
+    const references = Object.entries(types).flatMap(([key, type]) => {
+      const reference = dto.mediaUploads?.[key as keyof typeof types];
+      return reference ? [{ ...reference, type }] : [];
+    });
+    if (!references.length) return [];
+    if (references.some((reference) => !reference.id || !reference.token)
+      || new Set(references.map((reference) => reference.id)).size !== references.length) {
+      throw new BadRequestException('Tệp tải lên không hợp lệ hoặc được sử dụng nhiều lần');
+    }
+    const uploads = await database.participantMediaUpload.findMany({ where: {
+      id: { in: references.map((reference) => reference.id) }, expiresAt: { gt: new Date() },
+    } });
+    return references.map((reference) => {
+      const upload = uploads.find((item) => item.id === reference.id);
+      if (!upload?.storageKey || upload.type !== reference.type || upload.tokenHash !== this.hashResetToken(reference.token)) {
+        throw new BadRequestException('Tệp tải lên đã hết hạn hoặc không hợp lệ. Vui lòng tải lại tệp.');
+      }
+      this.validateFile(upload.type, { storageKey: upload.storageKey, mimetype: upload.mimeType, size: upload.size });
+      return upload;
+    });
   }
 
   async deleteRegistration(id: string) {
@@ -2059,14 +2129,16 @@ export class ParticipantsService {
       select: {
         countryId: true,
         media: {
-          select: { type: true, verificationStatus: true },
-          where: { type: { in: [AthleteMediaType.CCCD_FRONT, AthleteMediaType.CCCD_BACK, AthleteMediaType.PASSPORT] } },
+          select: registrationMediaSelect,
+          where: { type: { in: [AthleteMediaType.AVATAR, AthleteMediaType.CCCD_FRONT, AthleteMediaType.CCCD_BACK, AthleteMediaType.PASSPORT] } },
         },
       },
     });
     if (!athlete) throw new NotFoundException('Không tìm thấy vận động viên');
-    if (status === RegistrationStatus.CONFIRMED && !this.identityDocumentState(athlete.media).verified) {
-      throw new BadRequestException('Chỉ có thể xác nhận khi CCCD hai mặt hoặc hộ chiếu đã được xác thực');
+    if (status === RegistrationStatus.CONFIRMED) {
+      const mediaState = registrationMediaState(athlete.media);
+      this.assertRequiredRegistrationMedia(mediaState);
+      if (!mediaState.verified) throw new BadRequestException('Chỉ có thể xác nhận khi CCCD hai mặt hoặc hộ chiếu đã được xác thực');
     }
     if (
       status === RegistrationStatus.CONFIRMED
@@ -2186,11 +2258,12 @@ export class ParticipantsService {
     const finalized = await this.prisma.$transaction(async (transaction) => {
       const registration = await transaction.eventRegistration.findUnique({
         where: { id }, include: { submission: true, athlete: { include: {
-          media: { select: { type: true, verificationStatus: true } },
+          media: { select: registrationMediaSelect },
         } } },
       });
       if (!registration || registration.status !== RegistrationStatus.SUBMITTED || registration.paymentStatus !== PaymentStatus.PAID
-        || !this.identityDocumentState(registration.athlete.media).verified) return null;
+        || !registrationMediaState(registration.athlete.media).complete
+        || !registrationMediaState(registration.athlete.media).verified) return null;
       const statusChangedAt = new Date();
       const changed = await transaction.eventRegistration.updateMany({
         where: { id, status: RegistrationStatus.SUBMITTED, paymentStatus: PaymentStatus.PAID },
@@ -2318,6 +2391,11 @@ export class ParticipantsService {
     const passportVerified = hasPassport
       && byType.get(AthleteMediaType.PASSPORT) === DocumentVerificationStatus.VERIFIED;
     return { complete: hasCccd || hasPassport, verified: cccdVerified || passportVerified };
+  }
+
+  private assertRequiredRegistrationMedia(state: ReturnType<typeof registrationMediaState>) {
+    if (!state.hasAvatar) throw new BadRequestException('Cần tải ảnh đại diện trước khi đăng ký hoặc xác nhận tham gia');
+    if (!state.hasIdentityDocuments) throw new BadRequestException('Cần tải đủ CCCD hai mặt hoặc hộ chiếu trước khi đăng ký hoặc xác nhận tham gia');
   }
 
   private async autoVerifyIdentityMedia(athleteId: string, database: Prisma.TransactionClient = this.prisma) {
@@ -2481,7 +2559,7 @@ export class ParticipantsService {
     const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
     const allowed = type === AthleteMediaType.AVATAR ? imageTypes : [...imageTypes, 'application/pdf'];
     if (!allowed.includes(file.mimetype)) throw new BadRequestException('Chỉ hỗ trợ JPG, PNG, WebP hoặc PDF');
-    if (file.size > 8 * 1024 * 1024) throw new BadRequestException('Tệp không được vượt quá 8 MB');
+    if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 8 * 1024 * 1024) throw new BadRequestException('Tệp phải có dữ liệu và không được vượt quá 8 MB');
     // Staged files were validated before upload; the reference comes from the DB.
     if (!file.storageKey && !this.hasValidFileSignature(file)) {
       throw new BadRequestException('Nội dung tệp không đúng định dạng ảnh hoặc PDF đã khai báo');

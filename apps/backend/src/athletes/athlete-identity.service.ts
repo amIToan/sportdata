@@ -144,7 +144,7 @@ export class AthleteIdentityService {
       include: {
         participantAccount: { select: { phone: true } },
         country: { select: { name: true } }, federation: { select: { name: true } },
-        media: { select: { type: true, verificationStatus: true } },
+        media: { select: { type: true, verificationStatus: true, storageKey: true, mimeType: true, size: true } },
         publicRegistrations: { include: { submission: { select: { contactPhone: true } } } },
       },
       orderBy: { createdAt: 'asc' },
