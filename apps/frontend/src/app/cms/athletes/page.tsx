@@ -2,7 +2,7 @@
 
 import { imageUrl } from '@/lib/image-url';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import {
   Alert,
@@ -81,6 +81,8 @@ export default function AthletesListPage() {
   const [deleteError, setDeleteError] = useState('');
   const [deleteResult, setDeleteResult] = useState<BulkDeleteResult>();
   const [resultOpen, setResultOpen] = useState(false);
+  const selectionRevision = useRef(0);
+  const allRequestRevision = useRef(0);
   const toast = useSportDataToast();
 
   const filters = useMemo<AthleteFilters>(() => ({
@@ -93,7 +95,7 @@ export default function AthletesListPage() {
     return `/athletes?${params}`;
   }, [filters, page]);
 
-  const { data, error, isLoading, mutate } = useSWR<any>(query, fetcher);
+  const { data, error, isLoading, isValidating, mutate } = useSWR<any>(query, fetcher);
   const athletes = data?.items || [];
   const total = data?.total || 0;
   const selectedCount = allSelection?.expectedCount ?? selectedIds.length;
@@ -105,6 +107,7 @@ export default function AthletesListPage() {
   }, [error, toast]);
 
   const clearSelection = () => {
+    selectionRevision.current += 1;
     setSelectedIds([]);
     setSelectedNames({});
     setAllSelection(undefined);
@@ -116,10 +119,13 @@ export default function AthletesListPage() {
   };
 
   const selectAllMatching = async () => {
-    if (!canDelete || busy) return;
+    if (!canDelete || busy || isValidating || !data || error) return;
+    const requestRevision = ++allRequestRevision.current;
+    const scopeRevision = selectionRevision.current;
     setSelectingAll(true);
     try {
       const { data: preview } = await api.post<{ total: number; selectionToken: string }>('/athletes/bulk-delete/preview', { filters });
+      if (requestRevision !== allRequestRevision.current || scopeRevision !== selectionRevision.current) return;
       clearSelection();
       if (preview.total > 0) {
         setAllSelection({ mode: 'ALL_MATCHING', filters: { ...filters }, expectedCount: preview.total, selectionToken: preview.selectionToken });
@@ -128,9 +134,11 @@ export default function AthletesListPage() {
       }
       await refreshList().catch(() => undefined);
     } catch (requestError: any) {
-      toast.error(requestErrorMessage(requestError, 'Không thể chọn toàn bộ danh sách vận động viên.'));
+      if (requestRevision === allRequestRevision.current && scopeRevision === selectionRevision.current) {
+        toast.error(requestErrorMessage(requestError, 'Không thể chọn toàn bộ danh sách vận động viên.'));
+      }
     } finally {
-      setSelectingAll(false);
+      if (requestRevision === allRequestRevision.current) setSelectingAll(false);
     }
   };
 
@@ -437,7 +445,7 @@ export default function AthletesListPage() {
               <Button
                 onClick={selectAllMatching}
                 loading={selectingAll}
-                disabled={busy || isLoading || Boolean(error) || !total}
+                disabled={busy || isLoading || isValidating || Boolean(error) || !total}
               >
                 Chọn toàn bộ {total.toLocaleString('vi-VN')} VĐV
               </Button>
