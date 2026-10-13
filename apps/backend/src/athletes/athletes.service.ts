@@ -439,6 +439,7 @@ export class AthletesService {
       throw new BadRequestException('Ảnh đại diện phải là JPG, PNG hoặc WebP');
     }
     if (file.size > 8 * 1024 * 1024) throw new BadRequestException('Ảnh không được vượt quá 8 MB');
+    this.validateDocumentFile(file, 8 * 1024 * 1024);
     const previous = await this.prisma.athleteMedia.findUnique({ where: { athleteId_type: { athleteId: id, type: AthleteMediaType.AVATAR } }, select: { storageKey: true } });
     await this.storage.withUpload(file, 'athletes/avatars', previous?.storageKey, (storageKey, stored) => this.prisma.$transaction([
       this.prisma.athleteMedia.upsert({
@@ -576,13 +577,13 @@ export class AthletesService {
     }
   }
 
-  private validateDocumentFile(file: Express.Multer.File) {
+  private validateDocumentFile(file: Express.Multer.File, maxBytes = 4 * 1024 * 1024) {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BadRequestException('Chỉ hỗ trợ JPG, PNG, WebP hoặc PDF');
     }
-    if (file.size > 4 * 1024 * 1024) {
-      throw new BadRequestException('Tệp không được vượt quá 4 MB');
+    if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > maxBytes) {
+      throw new BadRequestException(`Tệp phải có dung lượng hợp lệ và không được vượt quá ${maxBytes / (1024 * 1024)} MB`);
     }
 
     const bytes = file.buffer;

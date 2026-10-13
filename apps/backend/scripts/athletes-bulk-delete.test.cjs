@@ -71,7 +71,10 @@ function fixture(rows) {
         return row;
       },
     },
-    athleteMedia: { findMany: async ({ where }) => media.get(where.athleteId) || [] },
+    athleteMedia: {
+      findMany: async ({ where }) => media.get(where.athleteId) || [],
+      findUnique: async () => null,
+    },
     $queryRaw: async (sql) => { if (onLock) await onLock(sql.values[0]); return []; },
   };
   const prisma = { ...store, $transaction: async (callback) => callback(store) };
@@ -206,4 +209,23 @@ test('single-athlete deletion shares protection and storage cleanup with bulk de
   await f.service.remove('deletable');
   assert.equal(f.records.has('deletable'), false);
   assert.equal(f.deletedFiles.length, 2);
+});
+
+test('CMS avatars reject invalid image bodies and zero/invalid sizes before storage', async () => {
+  const f = fixture([athlete('avatar')]);
+  let uploads = 0;
+  f.service.storage.withUpload = async () => { uploads++; };
+  for (const file of [
+    { mimetype: 'image/jpeg', size: 7, buffer: Buffer.from('invalid') },
+    { mimetype: 'image/png', size: 7, buffer: Buffer.from('%PDF-12') },
+    { mimetype: 'image/webp', size: 12, buffer: Buffer.alloc(12) },
+    { mimetype: 'image/jpeg', size: 0, buffer: Buffer.from([0xff, 0xd8, 0xff]) },
+    { mimetype: 'image/jpeg', size: NaN, buffer: Buffer.from([0xff, 0xd8, 0xff]) },
+  ]) await assert.rejects(f.service.uploadAvatar('avatar', file), (error) => error.getStatus() === 400);
+  assert.equal(uploads, 0);
+  const validFile = { mimetype: 'image/jpeg', size: 5 * 1024 * 1024, buffer: Buffer.from([0xff, 0xd8, 0xff]) };
+  assert.deepEqual(await f.service.uploadAvatar('avatar', validFile), { photoUrl: '/api/participant-auth/avatar/avatar' });
+  assert.equal(uploads, 1, 'Avatar keeps its 8 MB limit');
+  await assert.rejects(f.service.uploadDocument('avatar', 'PASSPORT', validFile), (error) => error.getStatus() === 400);
+  assert.equal(uploads, 1, 'Documents keep their 4 MB limit');
 });
