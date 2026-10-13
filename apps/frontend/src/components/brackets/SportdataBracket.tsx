@@ -47,7 +47,7 @@ export interface BracketMatch {
 export interface BracketDraw {
   id: string;
   name: string;
-  type: 'ROUND_ROBIN_POOL' | 'MAIN_TREE' | 'POOL_WINNER_TREE' | 'REPECHAGE' | 'DOUBLE_ELIMINATION';
+  type: 'ROUND_ROBIN_POOL' | 'MAIN_TREE' | 'POOL_WINNER_TREE' | 'REPECHAGE' | 'REPECHAGE_ROUND_OF_16' | 'DOUBLE_ELIMINATION';
   bracketSize?: number | null;
   sortOrder: number;
   matches: BracketMatch[];
@@ -85,7 +85,7 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
 
   const { viewportRef, scale, autoFit, minScale, maxScale, changeScale, enableAutoFit, resetScale } = useBracketViewport(boardWidth, boardHeight, collapsed);
   const terminalMatches = matches.filter((match) => (match.round || 1) === roundNumbers.at(-1));
-  const isRepechage = draw.type === 'REPECHAGE';
+  const isRepechage = draw.type === 'REPECHAGE' || draw.type === 'REPECHAGE_ROUND_OF_16';
   const feederLabels = new Map<string, string>();
   sourceMatches.forEach((source) => {
     const label = source.matchNumber ? `trận #${source.matchNumber}` : `vòng ${source.round || 1}, trận ${(source.bracketPosition || 0) + 1}`;
@@ -381,6 +381,7 @@ function drawTypeLabel(type: BracketDraw['type']) {
     MAIN_TREE: 'Main tree',
     POOL_WINNER_TREE: 'Poolwinner tree',
     REPECHAGE: 'Repechage',
+    REPECHAGE_ROUND_OF_16: 'Repechage 1/8',
     DOUBLE_ELIMINATION: 'Loại kép',
   } as const)[type];
 }

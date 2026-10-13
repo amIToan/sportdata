@@ -39,6 +39,7 @@ export class EnterResultDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => ParticipantResultDto) @IsOptional()
   participantResults?: ParticipantResultDto[];
   @ApiPropertyOptional() @IsString() @IsOptional() reason?: string;
+  @ApiPropertyOptional({ description: 'Mã bản xem trước cặp đấu dùng khi hiệu chỉnh kết quả' }) @IsString() @IsOptional() progressionToken?: string;
 }
 
 export class ResultActionDto {

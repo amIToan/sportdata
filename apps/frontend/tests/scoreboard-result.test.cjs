@@ -15,7 +15,7 @@ const manual = (athleteId, overrides = {}) => ({ boardId: board.id, resultVersio
 
 test('automatic winner follows the server ID, including the second athlete', () => {
   for (const winnerId of ['a', 'b']) {
-    for (const winMethod of ['POINTS', 'DECISION', 'SUBMISSION', 'DISQUALIFICATION']) {
+    for (const winMethod of ['POINTS', 'DECISION', 'SUBMISSION', 'DISQUALIFICATION', 'WALKOVVER']) {
       assert.deepEqual(getScoreboardResultSelection({ ...board, proposedWinnerId: winnerId, proposedWinMethod: winMethod }, manual(winnerId === 'a' ? 'b' : 'a')), { winnerId, winMethod, automatic: true });
     }
   }

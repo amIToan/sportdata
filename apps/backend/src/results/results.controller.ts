@@ -63,6 +63,13 @@ export class ResultsController {
     return this.results.enter(matchId, req.user.id, dto);
   }
 
+  @Post('matches/:matchId/correction-preview')
+  @Roles(UserRole.GAMES_ADMIN)
+  @ApiOperation({ summary: 'Preview corrected winner/loser progression without saving changes' })
+  previewCorrection(@Param('matchId') matchId: string, @Req() req: { user: { id: string } }, @Body() dto: EnterResultDto) {
+    return this.results.previewCorrection(matchId, req.user.id, dto);
+  }
+
   @Post('matches/:matchId/referee-confirm')
   @Roles(UserRole.GAMES_ADMIN)
   confirm(

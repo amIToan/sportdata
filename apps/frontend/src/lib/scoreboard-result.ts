@@ -11,6 +11,7 @@ type ResultBoard = {
 
 export function isScoreboardTerminal(board: ResultBoard | undefined) {
   return board?.proposedWinMethod === 'SUBMISSION' || board?.proposedWinMethod === 'DISQUALIFICATION'
+    || board?.proposedWinMethod === 'WALKOVVER'
     || (board?.athlete1Score ?? 0) >= 50 || (board?.athlete2Score ?? 0) >= 50;
 }
 

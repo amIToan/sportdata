@@ -1038,10 +1038,10 @@ export class MatchesService {
         used.add(id);
       }
     }
-    if (drawType === DrawType.ROUND_ROBIN_POOL || (drawType === DrawType.REPECHAGE && input.eligibleEntries.length < 6)) {
+    if (drawType === DrawType.ROUND_ROBIN_POOL || ((drawType === DrawType.REPECHAGE || drawType === DrawType.REPECHAGE_ROUND_OF_16) && input.eligibleEntries.length < 6)) {
       // Empty rosters can still have an empty configuration while registrations arrive.
       if (!pairs.length && input.eligibleEntries.length < 2) return;
-      const sizes = this.roundRobinGroupSizes(input.eligibleEntries.length, drawType === DrawType.REPECHAGE ? 1 : groupCount);
+      const sizes = this.roundRobinGroupSizes(input.eligibleEntries.length, drawType !== DrawType.ROUND_ROBIN_POOL ? 1 : groupCount);
       if (pairs.length > sizes.reduce((sum, size) => sum + Math.floor(size / 2), 0)) {
         throw new BadRequestException('Quá nhiều cặp đặt trước cho lượt đầu của các bảng; hãy giảm số cặp hoặc số bảng');
       }
@@ -1116,7 +1116,8 @@ export class MatchesService {
   private buildDrawPlan(input: Awaited<ReturnType<MatchesService['loadDrawInput']>>, dto: GenerateDrawDto,
     pairs: PreconfiguredPairDto[]) {
     if (dto.type === DrawType.ROUND_ROBIN_POOL) return this.buildRoundRobinPlan(input, dto, pairs);
-    if (dto.type === DrawType.REPECHAGE && input.eligibleEntries.length < 6) return this.buildRoundRobinPlan(input, { ...dto, groupCount: 1 }, pairs);
+    const isRepechage = dto.type === DrawType.REPECHAGE || dto.type === DrawType.REPECHAGE_ROUND_OF_16;
+    if (isRepechage && input.eligibleEntries.length < 6) return this.buildRoundRobinPlan(input, { ...dto, groupCount: 1 }, pairs);
     const type = dto.type || DrawType.MAIN_TREE;
     const athletes = dto.athleteIds.map((id) => {
       const entry = input.eligibleEntries.find((entry) => entry.athleteId === id)!;
@@ -1140,13 +1141,13 @@ export class MatchesService {
     const rounds = this.buildWinnerBracket({ ...common, drawId: mainId, slots });
     const matches = rounds.flat();
     const draws = [{ id: mainId, name: baseName, type: DrawType.MAIN_TREE as DrawType, bracketSize: size, sortOrder: 10 }];
-    if (type === DrawType.DOUBLE_ELIMINATION || type === DrawType.REPECHAGE) {
+    if (type === DrawType.DOUBLE_ELIMINATION || isRepechage) {
       const loserId = randomUUID();
-      const secondary = { ...common, drawId: loserId, winnersRounds: rounds };
+      const secondary = { ...common, drawId: loserId, winnersRounds: rounds, fromRoundOf16: type === DrawType.REPECHAGE_ROUND_OF_16 };
       matches.push(...(type === DrawType.DOUBLE_ELIMINATION
         ? this.buildDoubleEliminationBracket(secondary) : this.buildRepechageBracket(secondary)));
-      draws.push({ id: loserId, name: `${baseName} - ${type === DrawType.REPECHAGE ? 'REPECHAGE' : 'DOUBLE-ELIMINATION TREE'}`,
-        type, bracketSize: Math.max(2, (type === DrawType.REPECHAGE ? Math.min(32, size) : size) / 2), sortOrder: 20 });
+      draws.push({ id: loserId, name: `${baseName} - ${isRepechage ? (type === DrawType.REPECHAGE_ROUND_OF_16 ? 'REPECHAGE 1/8' : 'REPECHAGE') : 'DOUBLE-ELIMINATION TREE'}`,
+        type, bracketSize: Math.max(2, (isRepechage ? Math.min(type === DrawType.REPECHAGE_ROUND_OF_16 ? 16 : 32, size) : size) / 2), sortOrder: 20 });
     }
     this.resolveGeneratedWalkovers(matches);
     this.assignEvenMatchDates(matches as Array<GeneratedMatch & DateAssignableMatch>, input.event.startDate, input.event.endDate);
@@ -1596,11 +1597,12 @@ export class MatchesService {
     fops: ScheduledFop[];
     fopCursor: { value: number };
     winnersRounds: GeneratedMatch[][];
+    fromRoundOf16?: boolean;
     number: { value: number };
   }) {
-    // JJIF Sporting Code, Appendix 9: two bronze matches; gold stays in the main tree.
-    // Above 32 places, earlier qualifying rounds remain single elimination (4.2.5).
-    const eligibleRounds = input.winnersRounds.slice(-5);
+    // Every loser from the selected entry round through the semifinals feeds
+    // directly into repechage. Earlier qualifying rounds are single elimination.
+    const eligibleRounds = input.winnersRounds.slice(input.fromRoundOf16 ? -4 : -5);
     const roundCount = eligibleRounds.length * 2 - 4;
     const rounds: GeneratedMatch[][] = [];
     for (let stage = 1; stage <= roundCount; stage += 1) {
@@ -2024,7 +2026,7 @@ export class MatchesService {
       target = await transaction.match.findUnique({ where: { id } });
     }
     if (!target || target.status !== MatchStatus.SCHEDULED || target.resultStatus !== ResultStatus.DRAFT) {
-      throw new ConflictException('Trận đích đã bắt đầu hoặc đã có kết quả; không thể thay đổi VĐV của nhánh đấu');
+      throw new ConflictException(`Trận đích đã bắt đầu hoặc đã có kết quả; không thể thay đổi VĐV của nhánh đấu (trận #${target?.matchNumber || id})`);
     }
     return target;
   }
@@ -2053,7 +2055,7 @@ export class MatchesService {
         next = await transaction.match.findUnique({ where: { id: match.winnerToMatchId } });
       }
       if (!next || next.status !== MatchStatus.SCHEDULED || next.resultStatus !== ResultStatus.DRAFT) {
-        throw new ConflictException('Không thể sửa walkover tự động vì trận kế tiếp đã bắt đầu hoặc có kết quả');
+        throw new ConflictException(`Không thể sửa walkover tự động vì trận kế tiếp đã bắt đầu hoặc có kết quả (trận #${next?.matchNumber || match.winnerToMatchId})`);
       }
       const field = match.winnerToSide === BracketSide.ATHLETE1 ? 'athlete1Id' : 'athlete2Id';
       if (next[field] === match.winnerId) {

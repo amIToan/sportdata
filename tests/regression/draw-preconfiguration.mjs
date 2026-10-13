@@ -130,7 +130,7 @@ try {
   const query = '?drawType=MAIN_TREE';
   const pairs = [{ entry1Id: entries[0].id, entry2Id: entries[2].id }];
   for (const caller of [content, viewer, ordinary, admin, managerWithPermission]) {
-    for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'ROUND_ROBIN_POOL']) {
+    for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'ROUND_ROBIN_POOL']) {
       await api(`${path}/preconfiguration?drawType=${type}`, caller.token, null, 'GET', 403);
       await api(`${path}/preconfiguration/history?drawType=${type}`, caller.token, null, 'GET', 403);
       await api(`${path}/preconfiguration`, caller.token, { drawType: type, pairs, revision: 0, seedingMode: 'RANDOM' }, 'PATCH', 403);
@@ -256,27 +256,27 @@ try {
       }
     }
   }
-  for (const count of [6, 16]) {
+  for (const type of ['REPECHAGE', 'REPECHAGE_ROUND_OF_16']) for (const count of [6, 16, 32]) {
     const repechage = await fixture(count);
     const fixed = [{ entry1Id: repechage.entries[0].id, entry2Id: repechage.entries[2].id }];
     // Configurations for other rules must not interfere with this rule's preview/generation.
     await api(`${repechage.path}/preconfiguration`, privileged.token, { drawType: 'MAIN_TREE', pairs: [], seedingMode: 'STANDARD', revision: 0 }, 'PATCH');
-    let config = await api(`${repechage.path}/preconfiguration`, privileged.token, { drawType: 'REPECHAGE', pairs: fixed, seedingMode: 'RANDOM', revision: 0 }, 'PATCH');
-    const request = { ...repechage.dto, type: 'REPECHAGE', revision: config.revision };
+    let config = await api(`${repechage.path}/preconfiguration`, privileged.token, { drawType: type, pairs: fixed, seedingMode: 'RANDOM', revision: 0 }, 'PATCH');
+    const request = { ...repechage.dto, type, revision: config.revision };
     config = await api(`${repechage.path}/preview-draw`, privileged.token, request, 'POST', 201);
     assert.equal(config.preview.length, 2);
-    assert.equal(config.preview[1].type, 'REPECHAGE');
+    assert.equal(config.preview[1].type, type);
     assert.equal(config.preview[1].matches.filter((match) => match.notes?.startsWith('Generated repechage bronze medal')).length, 2);
     assert.ok(config.preview[0].matches.some((match) => match.round === 1 && match.athlete1Id === repechage.entries[0].athleteId && match.athlete2Id === repechage.entries[2].athleteId));
     assert.equal(await prisma.draw.count({ where: { eventId: repechage.event.id } }), 0);
-    assert.equal((await api(`${repechage.path}/preconfiguration?drawType=REPECHAGE`, privileged.token)).stale, false);
-    assert.equal((await api(`${repechage.path}/preconfiguration/history?drawType=REPECHAGE`, privileged.token)).length, 2);
+    assert.equal((await api(`${repechage.path}/preconfiguration?drawType=${type}`, privileged.token)).stale, false);
+    assert.equal((await api(`${repechage.path}/preconfiguration/history?drawType=${type}`, privileged.token)).length, 2);
     await api(`${repechage.path}/generate-draw`, ordinary.token, request, 'POST', 201);
     await assertPersistedPlan(repechage, config);
   }
-  console.log('PASS: Repechage with 6/16 athletes previews both bronze paths, keeps fixed pairs and persists the exact plan independently of other rules.');
+  console.log('PASS: Both Repechage formats with 6/16/32 athletes previews both bronze paths, keeps fixed pairs and persists the exact plan independently of other rules.');
 
-  for (const [count, type, groupCount] of [[2, 'ROUND_ROBIN_POOL', 1], [5, 'ROUND_ROBIN_POOL', 1], [6, 'ROUND_ROBIN_POOL', 2], [16, 'ROUND_ROBIN_POOL', 3], [5, 'REPECHAGE', 1]]) {
+  for (const [count, type, groupCount] of [[2, 'ROUND_ROBIN_POOL', 1], [5, 'ROUND_ROBIN_POOL', 1], [6, 'ROUND_ROBIN_POOL', 2], [16, 'ROUND_ROBIN_POOL', 3], [5, 'REPECHAGE', 1], [5, 'REPECHAGE_ROUND_OF_16', 1]]) {
     const robin = await fixture(count);
     const fixed = Array.from({ length: Math.min(2, Math.floor(count / 2)) }, (_, index) => ({ entry1Id: robin.entries[index * 2].id, entry2Id: robin.entries[index * 2 + 1].id }));
     let config = await api(`${robin.path}/preconfiguration`, privileged.token, { drawType: type, pairs: fixed, groupCount, seedingMode: 'RANDOM', revision: 0 }, 'PATCH');

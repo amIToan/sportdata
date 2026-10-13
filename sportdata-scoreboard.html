@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sportdata — Bảng điểm</title>
+  <style>
+    /* Chỉ HTML/CSS. Thay nội dung trực tiếp trong các phần tử bên dưới.
+       Bảng lấp đầy màn hình TV. Bật chế độ toàn màn hình của trình duyệt khi chiếu HDMI. */
+    :root { color-scheme: dark; --red: #ff253b; --blue: #99e4ff; --clock: #e2ff91; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+    body { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: #050a19; font-family: Arial, Helvetica, sans-serif; }
+    .scoreboard { width: 100vw; height: 100vh; height: 100dvh; container-type: size; overflow: hidden; background: #061e62; display: grid; grid-template-rows: 38% 38% 5% 19%; }
+    .scoreboard > * { --u: min(1cqw, 1.777778cqh); }
+    .competitor { position: relative; display: grid; grid-template-columns: 21% minmax(0, 1fr) 20%; grid-template-rows: 78% 22%; column-gap: 1.7%; padding: 1.65% 2% 0; }
+    .competitor--red { background: linear-gradient(110deg, #082876, #06205d 80%, #081b4d); --accent: var(--red); }
+    .competitor--blue { background: linear-gradient(110deg, #0645d1, #0439bc 70%, #062b93); --accent: var(--blue); }
+    .flag { width: 100%; aspect-ratio: 3 / 2; align-self: start; border: calc(.17 * var(--u)) solid #e0e8ff; margin-top: calc(.25 * var(--u)); }
+    .identity { align-self: center; padding-bottom: calc(1.6 * var(--u)); color: #ecfaff; min-width: 0; }
+    .name { margin: 0 0 calc(.7 * var(--u)); font-size: calc(4.65 * var(--u)); font-weight: 400; line-height: 1.1; letter-spacing: calc(-.12 * var(--u)); white-space: nowrap; }
+    .country { margin: 0; font-size: calc(2.55 * var(--u)); font-weight: 600; line-height: 1.1; }
+    .points { color: var(--accent); display: grid; grid-template-columns: 27% 24% 49%; grid-template-rows: 50% 50%; align-self: start; height: calc(13.5 * var(--u)); text-align: center; font-weight: 700; padding-top: calc(.5 * var(--u)); line-height: 1; }
+    .advantage-label { grid-column: 1; grid-row: 1; font-size: calc(6.1 * var(--u)); }
+    .advantage-value { grid-column: 1; grid-row: 2; font-size: calc(6.1 * var(--u)); }
+    .score { grid-column: 3; grid-row: 1 / 3; font-size: calc(12.6 * var(--u)); font-weight: 700; align-self: center; letter-spacing: calc(-.65 * var(--u)); }
+    .video-review { grid-column: 2; grid-row: 1 / 3; align-self: center; width: 100%; height: calc(7.15 * var(--u)); border-radius: calc(1.5 * var(--u)) calc(1.5 * var(--u)) calc(.45 * var(--u)) calc(.45 * var(--u)); background: #fa2037; display: flex; align-items: end; overflow: hidden; margin-left: calc(-.4 * var(--u)); }
+    .video-review span { width: 100%; padding: calc(.25 * var(--u)) 0; background: #e7b786; color: #fff; font-size: calc(1.75 * var(--u)); line-height: 1.15; }
+    .penalties { grid-column: 2 / 4; grid-row: 2; display: flex; align-items: center; gap: calc(2.35 * var(--u)); color: #eafaff; padding-left: calc(9.5 * var(--u)); padding-bottom: calc(.4 * var(--u)); white-space: nowrap; }
+    .penalties strong { color: var(--accent); font-size: calc(3.15 * var(--u)); line-height: 1; }
+    .penalties span { font-size: calc(2.05 * var(--u)); font-weight: 700; }
+    .separator { background: linear-gradient(90deg, #061f62, #08246c, #061e58); }
+    .match-footer { display: grid; grid-template-columns: 16% 18% 31% 35%; align-items: center; padding: 0 1.25%; background: linear-gradient(#6a2339, #491a30); }
+    .tatami { color: var(--clock); font-size: calc(3.3 * var(--u)); white-space: nowrap; letter-spacing: calc(-.07 * var(--u)); }
+    .brand { display: flex; flex-direction: column; align-items: center; color: #e9f8ff; }
+    .brand svg { width: calc(13.5 * var(--u)); height: calc(7.6 * var(--u)); overflow: visible; }
+    .brand-name { font-style: italic; font-weight: 700; font-size: calc(1.95 * var(--u)); letter-spacing: calc(.05 * var(--u)); line-height: 1.1; }
+    .timer { color: var(--clock); display: flex; align-items: baseline; justify-content: center; white-space: nowrap; line-height: 1; letter-spacing: calc(-.55 * var(--u)); font-variant-numeric: tabular-nums; }
+    .timer-main { font-size: calc(11.8 * var(--u)); font-weight: 700; }
+    .timer-tenth { font-size: calc(6.5 * var(--u)); font-weight: 700; letter-spacing: calc(-.3 * var(--u)); margin-left: calc(.9 * var(--u)); align-self: center; }
+    .match-details { color: #e9f5ff; font-size: calc(2.35 * var(--u)); font-weight: 600; line-height: 1.4; white-space: nowrap; letter-spacing: calc(-.055 * var(--u)); padding-left: calc(1 * var(--u)); }
+    .match-details p { margin: 0; }
+  </style>
+</head>
+<body>
+  <main class="scoreboard" aria-label="Bảng điểm trận Jiu-jitsu trên thảm 4">
+    <section class="competitor competitor--red" aria-label="Vận động viên đỏ, Tuong Vy P., Việt Nam, 9 điểm">
+      <svg class="flag" viewBox="0 0 300 200" role="img" aria-label="Cờ Việt Nam" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="200" fill="#ed1226"/>
+        <path d="M150 39 164.4 83.5 211.2 83.5 173.4 111 187.8 155.5 150 128 112.2 155.5 126.6 111 88.8 83.5 135.6 83.5Z" fill="#ffed75"/>
+      </svg>
+      <div class="identity"><h1 class="name">TUONG VY P.</h1><p class="country">VIETNAM</p></div>
+      <div class="points" aria-label="1 advantage, video review, 9 điểm">
+        <span class="advantage-label">A</span><span class="advantage-value">1</span>
+        <div class="video-review"><span>VR</span></div><span class="score">9</span>
+      </div>
+      <div class="penalties" aria-label="Penalties"><strong>PENALTIES</strong><span>1</span><span>2</span><span>3</span><span>4</span></div>
+    </section>
+    <section class="competitor competitor--blue" aria-label="Vận động viên xanh, Chev S., Campuchia, 0 điểm">
+      <svg class="flag" viewBox="0 0 300 200" role="img" aria-label="Cờ Campuchia, biểu tượng Angkor Wat giản lược" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="200" fill="#183dba"/><rect y="50" width="300" height="100" fill="#ed1231"/>
+        <g fill="#fff" stroke="#fff" stroke-linejoin="round">
+          <path d="M79 143H221V136H211V128H205V104H196V93L188 76 180 93V106H169V89H161V72L150 55 139 72V89H131V106H120V93L112 76 104 93V104H95V128H89V136H79Z"/>
+          <path d="M98 119H202V132H98Z"/>
+        </g>
+        <g stroke="#bbc5df" fill="none" stroke-width="1.3">
+          <path d="M85 139H215M91 134H209M98 129H202M104 117H196M104 111H196M139 89H161M140 82H160M143 74H157M107 99H117M183 99H193"/>
+          <path d="M107 109V129M114 109V129M121 110V129M128 110V129M135 104V129M143 101V129M150 101V129M157 101V129M165 104V129M172 110V129M179 110V129M186 109V129M193 109V129"/>
+        </g>
+      </svg>
+      <div class="identity"><h2 class="name">CHEV S.</h2><p class="country">CAMBODIA</p></div>
+      <div class="points" aria-label="0 advantage, 0 điểm"><span class="advantage-label">A</span><span class="advantage-value">0</span><span class="score">0</span></div>
+      <div class="penalties" aria-label="Penalties"><strong>PENALTIES</strong><span>1</span><span>2</span><span>3</span><span>4</span></div>
+    </section>
+    <div class="separator" aria-hidden="true"></div>
+    <footer class="match-footer">
+      <div class="tatami">TATAMI 4</div>
+      <div class="brand" aria-label="Sportdata, logo dựng lại">
+        <svg viewBox="0 0 210 105" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+          <path d="M204 7H87C60 7 40 21 33 40 26 59 40 69 65 69H111L130 52H76C67 52 64 48 68 42 72 36 79 33 90 33H171C183 33 197 22 204 7Z" fill="currentColor"/>
+          <path d="M7 102H127C155 102 176 88 183 68 190 49 178 40 153 40H110L89 57H140C151 57 154 61 150 68 146 75 140 77 129 77H43C29 77 15 88 7 102Z" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">SPORTDATA</span>
+      </div>
+      <div class="timer" aria-label="2 phút 51 giây 9 phần mười"><span class="timer-main">2:51</span>
+        <!-- <span class="timer-tenth">.9
+        </span> -->
+      </div>
+      <div class="match-details"><p>U21 JIU-JITSU NO-GI FEMALE</p><p>-48 KG | ROUND OF 16 #1415</p></div>
+    </footer>
+  </main>
+</body>
+</html>

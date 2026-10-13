@@ -1,12 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Alert, Button, Collapse, Drawer, Input, InputNumber, Select, Space, Tabs, Tag } from 'antd';
 import { ScheduleConfig, clearMatchStart, localDateTime, localDay, localISO, localTime, stageLabel, updateMatchStart } from './schedule-ui';
+import { withCmsReturnTo } from '@/lib/cms-navigation';
 
 export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, canScore, onChange }: {
   proposal: any; config: ScheduleConfig; focusDay?: string; canEdit: boolean; canScore: boolean; onChange: (config: ScheduleConfig) => void;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const returnTo = `${pathname}${searchParams.size ? `?${searchParams.toString()}` : ''}`;
   const [day, setDay] = useState(focusDay);
   const [query, setQuery] = useState('');
   const [moving, setMoving] = useState<any>();
@@ -62,6 +67,7 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
             <Space wrap>{detail?.status && <Tag>{({ SCHEDULED: 'Chưa đấu', RUNNING: 'Đang thi đấu', FINISHED: 'Đã kết thúc', CANCELLED: 'Đã hủy' } as Record<string, string>)[detail.status] || detail.status}</Tag>}{detail?.immutable && <Tag color="gold">Đã đấu / đã khóa</Tag>}
               {canEdit && <><Button disabled={detail?.immutable} onClick={() => setMoving({ ...item, pin: false })}>Dời từ đây</Button><Button disabled={detail?.immutable} onClick={() => setMoving({ ...item, pin: true })}>Cố định giờ</Button></>}
               {canScore && <Button disabled={!detail?.canScore} href={detail?.canScore ? `/cms/matches/${item.matchId}/scoreboard` : undefined} target="sportdata-scoreboard">Bảng điểm</Button>}
+              <Button href={withCmsReturnTo(`/cms/matches/${item.matchId}/edit`, returnTo)}>Chi tiết trận</Button>
             </Space>
           </div>; })}
           {next && <Button onClick={() => setDay(next.localDate)}>Xem phần tiếp tục · {next.localDate}</Button>}
@@ -70,6 +76,7 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
     {proposal.unscheduled.length > 0 && <Collapse items={[{ key: 'unscheduled', label: `${proposal.unscheduled.length} trận chưa xếp`, children: <div className="space-y-3">
       {proposal.unscheduled.map((item: any) => { const detail = details.get(item.matchId); return <div key={item.matchId} className="flex flex-wrap items-center justify-between gap-2">
         <span>Trận #{detail?.matchNumber || item.matchId} · {detail?.categoryName} · {stageLabel(detail?.stageKey || '', detail?.round)}</span>
+        <Button href={withCmsReturnTo(`/cms/matches/${item.matchId}/edit`, returnTo)}>Chi tiết trận</Button>
         {canEdit && detail && <Button disabled={detail.immutable} onClick={() => setMoving({ ...item, pin: false,
           localDate: config.windows.find((window) => window.enabled)?.localDate, start: undefined })}>Dời từ đây</Button>}
       </div>; })}

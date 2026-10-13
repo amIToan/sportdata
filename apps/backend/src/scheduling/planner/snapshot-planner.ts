@@ -100,14 +100,15 @@ export function semanticStages(snapshot: ScheduleSnapshot, categoryId: string) {
       stages.set(id, { ...stage, stageOrder: stage.stageOrder * 10, drawId: draw.id });
     }
   }
-  for (const draw of draws.filter((item) => ['REPECHAGE', 'DOUBLE_ELIMINATION'].includes(item.type))) {
+  for (const draw of draws.filter((item) => ['REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'DOUBLE_ELIMINATION'].includes(item.type))) {
     const secondary = matches.filter((match) => match.drawId === draw.id);
     const sourceDraws = draws.filter((item) => item.type === 'MAIN_TREE' && matches.some((match) =>
       match.drawId === item.id && secondary.some((target) => target.id === match.loserToMatchId)));
     if (sourceDraws.length !== 1) throw new ScheduleGraphError('UNSUPPORTED_DRAW_TYPE', 'Không xác định được nhánh chính của nhánh phụ.');
     const size = sourceDraws[0].bracketSize;
-    const repechage = draw.type === 'REPECHAGE';
-    const effectiveSize = repechage ? Math.min(32, size) : size;
+    const repechage = draw.type === 'REPECHAGE' || draw.type === 'REPECHAGE_ROUND_OF_16';
+    const repechageSize = draw.type === 'REPECHAGE_ROUND_OF_16' ? 16 : 32;
+    const effectiveSize = repechage ? Math.min(repechageSize, size) : size;
     const rounds = Math.log2(effectiveSize) * 2 - (repechage ? 4 : 2);
     if (!Number.isInteger(rounds) || rounds < 1) throw new ScheduleGraphError('UNSUPPORTED_DRAW_TYPE', 'Khung nhánh phụ chưa được hỗ trợ.');
     for (let round = 1; round <= rounds + (repechage ? 0 : 1); round += 1) {
@@ -129,7 +130,7 @@ export function semanticStages(snapshot: ScheduleSnapshot, categoryId: string) {
     const main = matches.filter((match) => match.drawId === sourceDraws[0].id);
     const mainRounds = [...new Set<number>(main.map((match) => match.round))].sort((a, b) => a - b)
       .map((round) => main.filter((match) => match.round === round).sort((a, b) => a.bracketPosition - b.bracketPosition));
-    const eligible = repechage ? mainRounds.slice(-5) : mainRounds;
+    const eligible = repechage ? mainRounds.slice(-Math.log2(repechageSize)) : mainRounds;
     const lower = Array.from({ length: rounds }, (_, index) => secondary.filter((match) => match.round === index + 1)
       .sort((a, b) => a.bracketPosition - b.bracketPosition));
     const expected = new Map<string, string[]>();

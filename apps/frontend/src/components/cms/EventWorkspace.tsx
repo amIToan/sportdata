@@ -1987,7 +1987,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
   const toast = useSportDataToast();
   const { mutate: mutateGlobal } = useSWRConfig();
   const [categoryId, setCategoryId] = useState<string>(event.categories?.[0]?.id || '');
-  const [format, setFormat] = useState<'SINGLE' | 'DOUBLE' | 'REPECHAGE' | 'ROUND_ROBIN' | 'ABSOLUTE'>('SINGLE');
+  const [format, setFormat] = useState<'SINGLE' | 'DOUBLE' | 'REPECHAGE' | 'REPECHAGE_ROUND_OF_16' | 'ROUND_ROBIN' | 'ABSOLUTE'>('SINGLE');
   const [seedingMode, setSeedingMode] = useState('STANDARD');
   const [groupCount, setGroupCount] = useState(1);
   const [generating, setGenerating] = useState(false);
@@ -2000,8 +2000,9 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
   }>(canOperate && categoryId ? `/matches/event/${event.id}/category/${categoryId}/draw-state` : null, fetcher, { refreshInterval: 5000 });
   const hasDraws = !!drawState && (drawState.drawCount > 0 || drawState.groupCount > 0);
   const activeEntries = entries.filter((entry) => entry.status === 'VERIFIED' && entry.type === 'INDIVIDUAL' && entry.athlete?.id);
-  const usesRoundRobin = format === 'ROUND_ROBIN' || (format === 'REPECHAGE' && activeEntries.length < 6);
-  const drawType = format === 'ROUND_ROBIN' ? 'ROUND_ROBIN_POOL' : format === 'DOUBLE' ? 'DOUBLE_ELIMINATION' : format === 'REPECHAGE' ? 'REPECHAGE' : 'MAIN_TREE';
+  const isRepechage = format === 'REPECHAGE' || format === 'REPECHAGE_ROUND_OF_16';
+  const usesRoundRobin = format === 'ROUND_ROBIN' || (isRepechage && activeEntries.length < 6);
+  const drawType = format === 'ROUND_ROBIN' ? 'ROUND_ROBIN_POOL' : format === 'DOUBLE' ? 'DOUBLE_ELIMINATION' : isRepechage ? format : 'MAIN_TREE';
   const minimumEntries = format === 'DOUBLE' ? 4 : 2;
 
   const updateSeed = async (entry: any, seed: number | null) => {
@@ -2055,7 +2056,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
         athleteIds,
         type: drawType,
         seedingMode,
-        groupCount: format === 'REPECHAGE' ? 1 : usesRoundRobin ? groupCount : undefined,
+        groupCount: isRepechage ? 1 : usesRoundRobin ? groupCount : undefined,
         name: format === 'ABSOLUTE' ? 'Hạng Tuyệt đối' : undefined,
         fops: event.fops?.length ? event.fops.map((fop: any) => fop.name) : undefined,
       });
@@ -2069,11 +2070,12 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
   };
 
   const formatCards = [
+    { value: 'REPECHAGE', title: 'Repechage Brackets', description: 'Nhánh chính tranh vàng/bạc, hai nhánh vớt tranh HCĐ. Dưới 6 VĐV tự động đấu vòng tròn.' },
+    { value: 'REPECHAGE_ROUND_OF_16', title: 'Repechage 1/8', description: 'Thua từ vòng 1/8, tứ kết hoặc bán kết vào nhánh vớt ngay. Tranh 2 HCĐ chéo nhánh. Dưới 6 VĐV đấu vòng tròn.' },
     { value: 'SINGLE', title: 'Loại trực tiếp', description: 'Thua một trận bị loại. Phù hợp phần lớn giải đấu.' },
     { value: 'DOUBLE', title: 'Loại kép', description: 'Thi đấu theo nhánh thắng, nhánh thua và trận chung kết.' },
-    { value: 'REPECHAGE', title: 'Đấu vớt / Repechage', description: 'Nhánh chính tranh vàng/bạc, hai nhánh vớt tranh HCĐ. Dưới 6 VĐV tự động đấu vòng tròn.' },
     { value: 'ROUND_ROBIN', title: 'Đấu vòng tròn', description: 'Mọi VĐV trong bảng thi đấu với nhau, phù hợp bảng nhỏ.' },
-    { value: 'ABSOLUTE', title: 'Tuyệt đối / Open Weight', description: 'Không giới hạn hạng cân; dùng cây loại trực tiếp.' },
+    // { value: 'ABSOLUTE', title: 'Tuyệt đối / Open Weight', description: 'Không giới hạn hạng cân; dùng cây loại trực tiếp.' },
   ] as const;
 
   return (
@@ -2096,7 +2098,8 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
             </button>
           ))}
         </div>
-        {format === 'REPECHAGE' && usesRoundRobin && <ToastNotice className="!mt-4" type="info" showIcon message="Dưới 6 VĐV: tự động dùng vòng tròn. Cặp đặt trước áp dụng ở lượt đấu đầu." />}
+        {isRepechage && usesRoundRobin && <ToastNotice className="!mt-4" type="info" showIcon message="Dưới 6 VĐV: tự động dùng vòng tròn. Cặp đặt trước áp dụng ở lượt đấu đầu." />}
+        {format === 'REPECHAGE_ROUND_OF_16' && !usesRoundRobin && <ToastNotice className="!mt-4" type="info" showIcon message="Bảng 16 VĐV: 8 người thua vòng 1/8 đấu còn 4; gặp 4 người thua tứ kết rồi đấu tiếp chọn 2 người thắng vớt A/B. Thắng vớt A gặp thua bán kết B và ngược lại, trao 2 HCĐ. Với bảng lớn hơn, nhánh vớt bắt đầu từ vòng 1/8." />}
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           {preconfigureActorId ? <span className="self-center text-sm text-slate-500">Cấu hình cặp và cách xếp trong Pre-matches phía trên.</span> : format === 'ROUND_ROBIN' ? <InputNumber className="w-full" min={1} max={Math.max(1, Math.min(16, Math.floor(activeEntries.length / 2)))} value={groupCount} onChange={(value) => setGroupCount(value || 1)} addonBefore="Số bảng" /> : usesRoundRobin ? <span className="self-center text-sm text-slate-500">Thi đấu vòng tròn trong một bảng.</span> : <Select value={seedingMode} onChange={setSeedingMode} options={[{ value: 'STANDARD', label: 'Xếp hạt giống chuẩn' }, { value: 'RANDOM', label: 'Ngẫu nhiên' }, { value: 'COUNTRY_SEPARATED', label: 'Tách quốc gia' }, { value: 'FEDERATION_SEPARATED', label: 'Tách đơn vị / CLB' }]} />}
           <Space wrap>

@@ -41,9 +41,9 @@ async function pageFor(privileged,count=5,started=false){
   }else if(path.endsWith('/preview-draw')){
    privateCalls++;const input=req.postDataJSON();lastPreviewType=input.type;config=configurationFor(input.type);
    assert.equal(input.revision,config.revision);
-   const usesRoundRobin=input.type==='ROUND_ROBIN_POOL'||(input.type==='REPECHAGE'&&count<6);
+   const usesRoundRobin=input.type==='ROUND_ROBIN_POOL'||(['REPECHAGE','REPECHAGE_ROUND_OF_16'].includes(input.type)&&count<6);
    const currentPreview=preview.map(draw=>({...draw,type:usesRoundRobin?'ROUND_ROBIN_POOL':'MAIN_TREE'}));
-   if(input.type==='DOUBLE_ELIMINATION'||(input.type==='REPECHAGE'&&count>=6))currentPreview.push({...preview[0],id:'secondary',name:'Preview UI secondary',type:input.type,matches:[]});
+   if(input.type==='DOUBLE_ELIMINATION'||(['REPECHAGE','REPECHAGE_ROUND_OF_16'].includes(input.type)&&count>=6))currentPreview.push({...preview[0],id:'secondary',name:'Preview UI secondary',type:input.type,matches:[]});
    config={...config,name:input.name,revision:config.revision+1,stale:false,preview:currentPreview};configurations.set(input.type,config);body=config;
   }else if(path.endsWith('/history')){privateCalls++;body=[];}
   else if(path.endsWith('/draw-state'))body={version:`draw-${drawVersion}`,canRevert:generated&&!started,drawCount:generated?1:0,groupCount:0,matchCount:generated?3:0,reason:started?'Hạng đấu đã có trận bắt đầu hoặc ghi nhận kết quả; không thể thu hồi nhánh.':null};
@@ -93,7 +93,7 @@ try{
  if (process.env.DRAW_SCREENSHOT_PATH) await page.screenshot({path:process.env.DRAW_SCREENSHOT_PATH,fullPage:true});
 
  const allRules=await pageFor(true,16);
- for(const [title,type] of [['Loại trực tiếp','MAIN_TREE'],['Loại kép','DOUBLE_ELIMINATION'],['Đấu vớt / Repechage','REPECHAGE'],['Đấu vòng tròn','ROUND_ROBIN_POOL'],['Tuyệt đối / Open Weight','MAIN_TREE']]){
+ for(const [title,type] of [['Loại trực tiếp','MAIN_TREE'],['Loại kép','DOUBLE_ELIMINATION'],['Repechage Brackets','REPECHAGE'],['Repechage 1/8','REPECHAGE_ROUND_OF_16'],['Đấu vòng tròn','ROUND_ROBIN_POOL']]){
   await allRules.getByRole('button',{name:new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))}).click();
   const add=allRules.getByRole('button',{name:'Thêm cặp',exact:true});
   await add.waitFor();
@@ -113,7 +113,7 @@ try{
   await allRules.getByText('Preview UI tree',{exact:true}).waitFor();
   assert.equal(lastPreviewType,type,`${title}: preview must use the selected rule`);
   if(type==='ROUND_ROBIN_POOL')assert.equal(await allRules.getByText('Vô địch',{exact:true}).count(),0,'Round robin must show fixtures rather than a knockout champion');
-  if(type==='DOUBLE_ELIMINATION'||type==='REPECHAGE')await allRules.getByText('Preview UI secondary',{exact:true}).waitFor();
+  if(['DOUBLE_ELIMINATION','REPECHAGE','REPECHAGE_ROUND_OF_16'].includes(type))await allRules.getByText('Preview UI secondary',{exact:true}).waitFor();
   await allRules.locator('.ant-modal-close').click();
   lastGeneratedType=undefined;
   const generation=allRules.waitForResponse(response=>response.url().endsWith('/generate-draw')&&response.request().method()==='POST');
@@ -125,14 +125,17 @@ try{
   await allRules.getByRole('button',{name:'Thu hồi nhánh',exact:true}).click();await reversion;
   await allRules.getByRole('button',{name:'Thu hồi nhánh đấu',exact:true}).waitFor({state:'hidden'});
  }
+ assert.equal(await allRules.getByRole('button',{name:/Tuyệt đối \/ Open Weight/}).count(),0);
+ for (const [label,smallType] of [['Repechage Brackets','REPECHAGE'],['Repechage 1/8','REPECHAGE_ROUND_OF_16']]) {
  const small=await pageFor(true,5);
- await small.getByRole('button',{name:/Đấu vớt \/ Repechage/}).click();
+ await small.getByRole('button',{name:new RegExp(label)}).click();
  await small.getByText('Dưới 6 VĐV: tự động dùng vòng tròn. Cặp đặt trước áp dụng ở lượt đấu đầu.',{exact:true}).waitFor();
  await small.getByRole('button',{name:'Preview cây đấu',exact:true}).click();
  await small.getByText('Preview UI tree',{exact:true}).waitFor();
- assert.equal(lastPreviewType,'REPECHAGE','Under-six fallback must retain its own Repechage configuration');
+ assert.equal(lastPreviewType,smallType,'Under-six fallback must retain its own Repechage configuration');
  assert.equal(await small.getByText('Vô địch',{exact:true}).count(),0,'Under-six Repechage must show round-robin fixtures');
  await small.locator('.ant-modal-close').click();
+ }
  const tooSmall=await pageFor(true,3);
  await tooSmall.getByRole('button',{name:/Loại kép/}).click();
  await tooSmall.getByText('Pre-matches · Cặp đặt trước',{exact:true}).waitFor();

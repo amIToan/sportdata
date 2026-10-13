@@ -4,7 +4,7 @@ import { DrawType } from '@prisma/client';
 import { GenerateDrawDto, SeedingMode, seedingModes } from './generate-draw.dto';
 
 export const preconfigurationDrawTypes: DrawType[] = [
-  DrawType.MAIN_TREE, DrawType.DOUBLE_ELIMINATION, DrawType.REPECHAGE, DrawType.ROUND_ROBIN_POOL,
+  DrawType.MAIN_TREE, DrawType.DOUBLE_ELIMINATION, DrawType.REPECHAGE, DrawType.REPECHAGE_ROUND_OF_16, DrawType.ROUND_ROBIN_POOL,
 ];
 
 export class PreconfiguredPairDto {

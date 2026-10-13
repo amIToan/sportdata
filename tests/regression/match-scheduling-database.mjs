@@ -223,7 +223,7 @@ try {
   await db.$executeRawUnsafe('DROP TRIGGER reject_schedule_test ON "MatchScheduleItem"');
   console.log('PASS: injected write failure rolls back the entire chain and ownership.');
 
-  for (const type of ['REPECHAGE', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
+  for (const type of ['REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
     const shaped = await fixture(size, 'FIGHTING', type);
     const sp = await draft(shaped); const sv = await preview(shaped, sp);
     assert.equal(sv.canApply, true, `${type}/${size}: ${JSON.stringify(sv.violations)}`);
@@ -240,7 +240,7 @@ try {
     const draws = await db.draw.findMany({ where: { eventId: shaped.event.id, categoryId: shaped.category.id } });
     assert.throws(() => semanticStages({ matches: corrupt, draws, heats: [] }, shaped.category.id), /topology/);
   }
-  console.log('PASS: approved REPECHAGE and DOUBLE_ELIMINATION stage mappings for 8/16/32 actual generated trees.');
+  console.log('PASS: approved REPECHAGE, REPECHAGE_ROUND_OF_16 and DOUBLE_ELIMINATION stage mappings for 8/16/32 actual generated trees.');
   const competitions = new CompetitionsService(db, generator);
   for (const discipline of ['DUO', 'SHOW']) {
     const category = await db.category.create({ data: { name: `Team ${discipline}`, sportId: sport.id, discipline, gender: 'MALE', weightKind: 'OPEN' } });

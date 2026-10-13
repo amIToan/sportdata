@@ -27,6 +27,7 @@ export function MatchScoreboardHistory({ match }: { match: ScoreboardHistoryMatc
             { title: 'Vận động viên', key: 'athlete', width: 200, render: (_, action) => <><Tag color={action.side === 1 ? 'red' : 'cyan'}>{action.side === 1 ? 'Đỏ' : 'Xanh'}</Tag><span>{athleteName(action.side)}</span></> },
             { title: 'Thao tác', key: 'award', render: (_, action) => <div className={action.undone ? 'text-slate-500 line-through' : ''}>
               {SCOREBOARD_AWARD_LABELS[action.award] || action.award}{action.award === 'POINTS' ? ` +${action.points}` : action.penaltyLevel ? ` ${action.penaltyLevel}P` : ''}
+              {action.source === 'STALLING_TIMER' && <span> · Hết 10 giây thụ động</span>}
               {action.opponentAward && <div className="mt-1 text-xs">{athleteName(action.opponentAward.side)}: +{action.opponentAward.points} {SCOREBOARD_AWARD_LABELS[action.opponentAward.award]}</div>}
               {action.scoreChanges?.map((change) => <div key={change.side} className="mt-1 text-xs">{athleteName(change.side)}: {change.before} → {change.after} điểm</div>)}
             </div> },

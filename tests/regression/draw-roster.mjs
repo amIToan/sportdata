@@ -45,7 +45,7 @@ const service = new MatchesService(db);
 const input = await service.loadDrawInput(db, event.id, category.id);
 assert.deepEqual(input.eligibleEntries.map((entry) => entry.athleteId), ['a', 'b', 'c', 'd']);
 
-for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'ROUND_ROBIN_POOL']) {
+for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'ROUND_ROBIN_POOL']) {
   const result = await service.previewDraw(event.id, category.id, { type, athleteIds: ['a', 'b', 'c', 'd'],
     revision: 0, seedingMode: 'STANDARD', groupCount: 1 }, 'admin');
   assert.equal(result.stale, false);
@@ -72,4 +72,4 @@ for (const athleteIds of [['a', 'b'], ['a', 'b', 'c', 'd', 'unknown'],
 category.gender = 'FEMALE';
 await assert.rejects(service.previewDraw(event.id, category.id,
   { athleteIds: ['a', 'b', 'c', 'd', 'new'] }, 'admin'), (error) => error.getStatus() === 400);
-console.log('Draw roster regression checks passed: verified entries, stale rosters, four preview formats and eligibility.');
+console.log('Draw roster regression checks passed: verified entries, stale rosters, five preview formats and eligibility.');

@@ -131,7 +131,7 @@ interface MatchesResponse {
 interface DrawData {
   id: string;
   name: string;
-  type: 'ROUND_ROBIN_POOL' | 'MAIN_TREE' | 'POOL_WINNER_TREE' | 'REPECHAGE' | 'DOUBLE_ELIMINATION';
+  type: 'ROUND_ROBIN_POOL' | 'MAIN_TREE' | 'POOL_WINNER_TREE' | 'REPECHAGE' | 'REPECHAGE_ROUND_OF_16' | 'DOUBLE_ELIMINATION';
   bracketSize?: number | null;
   sortOrder: number;
   matches: MatchData[];

@@ -31,7 +31,7 @@ export class GenerateDrawDto {
   @IsString({ each: true })
   athleteIds: string[];
 
-  @ApiPropertyOptional({ enum: [DrawType.MAIN_TREE, DrawType.REPECHAGE, DrawType.DOUBLE_ELIMINATION, DrawType.ROUND_ROBIN_POOL] })
+  @ApiPropertyOptional({ enum: [DrawType.MAIN_TREE, DrawType.REPECHAGE, DrawType.REPECHAGE_ROUND_OF_16, DrawType.DOUBLE_ELIMINATION, DrawType.ROUND_ROBIN_POOL] })
   @IsEnum(DrawType)
   @IsOptional()
   type?: DrawType = DrawType.MAIN_TREE;

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { Controller, useForm } from 'react-hook-form';
@@ -11,6 +12,7 @@ import { api, fetcher } from '@/lib/api';
 import { FormActions } from './AthleteForm';
 import { RemoteAthleteSelect } from './RemoteAthleteSelect';
 import { MatchScoreboardHistory } from './MatchScoreboardHistory';
+import { MatchResultCorrection } from './MatchResultCorrection';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { MATCH_STATUS_META, RESULT_STATUS_META, WIN_METHOD_LABELS } from '@/lib/vi-labels';
 
@@ -56,6 +58,8 @@ const statusOptions = [
 export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { matchId?: string; initialData?: any; returnTo?: string }) {
   const router = useRouter();
   const toast = useSportDataToast();
+  const [correctingResult, setCorrectingResult] = useState(false);
+  const { data: currentUser } = useSWR<any>('/auth/profile', fetcher);
   const { data: eventsResponse } = useSWR<any>('/events?limit=200', fetcher);
   const { data: categoriesResponse } = useSWR<any>('/categories?limit=200', fetcher);
   const events = eventsResponse?.items || [];
@@ -140,7 +144,7 @@ export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { 
         <Card
           className="cms-surface mb-5"
           title="Kết quả từ bảng điểm"
-          extra={<Button href={`/cms/matches/${matchId}/scoreboard`} target="sportdata-scoreboard">Mở bảng điểm</Button>}
+          extra={<div className="flex flex-wrap gap-2"><Button href={`/cms/matches/${matchId}/scoreboard`} target="sportdata-scoreboard">Mở bảng điểm</Button>{initialData?.status === 'FINISHED' && initialData?.athlete1 && initialData?.athlete2 && ['ADMIN', 'GAMES_ADMIN'].includes(currentUser?.role) && <Button onClick={() => setCorrectingResult(true)}>Sửa kết quả</Button>}</div>}
         >
           <div className="grid gap-4 md:grid-cols-2">
             {[
@@ -230,6 +234,7 @@ export function MatchForm({ matchId, initialData, returnTo = '/cms/events' }: { 
         </Row>
       </Card>
       <FormActions pending={isSubmitting} label={matchId ? 'Lưu thay đổi' : 'Tạo trận đấu'} cancelHref={returnTo} />
+      {correctingResult && <MatchResultCorrection match={initialData} role={currentUser?.role} onClose={() => setCorrectingResult(false)} />}
     </Form>
   );
 }
