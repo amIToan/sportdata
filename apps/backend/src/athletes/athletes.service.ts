@@ -401,6 +401,7 @@ export class AthletesService {
       // Lock before collecting media keys; concurrent uploads must finish first
       // or fail after deletion, preventing orphaned private document files.
       await transaction.$queryRaw(Prisma.sql`SELECT id FROM "Athlete" WHERE id = ${id} FOR UPDATE`);
+      await transaction.$queryRaw(Prisma.sql`SELECT id FROM "AthleteMedia" WHERE "athleteId" = ${id} FOR UPDATE`);
       const athlete = await transaction.athlete.findUnique({
         where: { id },
         select: { _count: { select: { statistics: true, teamMemberships: true } } },

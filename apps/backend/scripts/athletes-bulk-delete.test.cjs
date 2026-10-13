@@ -75,7 +75,10 @@ function fixture(rows) {
       findMany: async ({ where }) => media.get(where.athleteId) || [],
       findUnique: async () => null,
     },
-    $queryRaw: async (sql) => { if (onLock) await onLock(sql.values[0]); return []; },
+    $queryRaw: async (sql) => {
+      if (onLock && sql.strings[0].includes('FROM "Athlete"')) await onLock(sql.values[0]);
+      return [];
+    },
   };
   const prisma = { ...store, $transaction: async (callback) => callback(store) };
   const service = new AthletesService(prisma, {}, { deleteQuietly: async (key) => deletedFiles.push(key) }, {});

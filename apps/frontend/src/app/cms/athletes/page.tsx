@@ -518,7 +518,7 @@ export default function AthletesListPage() {
             type="warning"
             showIcon
             title="Thao tác này không thể hoàn tác."
-            description="Hồ sơ, ảnh đại diện và giấy tờ của VĐV được xóa khỏi hệ thống. VĐV có dữ liệu thi đấu liên quan sẽ được giữ lại và báo lý do trong kết quả."
+            description="Hồ sơ, ảnh đại diện, giấy tờ và các lượt đăng ký sự kiện của VĐV được xóa. Những hồ sơ không thể xóa vì ràng buộc dữ liệu được giữ lại và báo lý do trong kết quả."
           />
           {deleteScope?.mode === 'ALL_MATCHING' ? <div>
             <Typography.Paragraph strong>Phạm vi: tất cả các trang của danh sách theo bộ lọc đã chọn.</Typography.Paragraph>
