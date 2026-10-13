@@ -73,7 +73,7 @@ export class CreateEventParticipationDto {
   @Type(() => ParticipationMediaUploadsDto)
   mediaUploads: ParticipationMediaUploadsDto;
 
-  @ValidateIf((dto) => [EventParticipationRole.TEAM_LEADER, EventParticipationRole.REFEREE].includes(dto.role) || dto.federationId !== undefined)
+  @ValidateIf((dto) => dto.role === EventParticipationRole.TEAM_LEADER || dto.federationId !== undefined)
   @IsString()
   @MinLength(1)
   federationId?: string;

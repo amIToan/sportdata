@@ -145,7 +145,7 @@ function participationFixture(role = 'COACH', identityType = 'CCCD', media = val
     { normalize: () => ({ cccdEncrypted: 'encrypted', passportEncrypted: 'encrypted' }), decrypt: () => draft.documentNumber },
     { get: async () => ({ values: { identityOcrEnabled: false } }) });
   const keys = { AVATAR: 'avatar', CCCD_FRONT: 'cccdFront', CCCD_BACK: 'cccdBack', PASSPORT: 'passport' };
-  const dto = { eventId: event.id, role, federationId: 'unit', identityType, documentNumber: draft.documentNumber,
+  const dto = { eventId: event.id, role, federationId: role === 'REFEREE' ? undefined : 'unit', identityType, documentNumber: draft.documentNumber,
     mediaUploads: Object.fromEntries(pending.map((item, index) => [keys[item.type], { id: item.id, token: `token-${index}` }])) };
   return { service, dto, state };
 }
@@ -153,6 +153,7 @@ for (const role of ['COACH', 'TEAM_LEADER', 'REFEREE']) {
   for (const identityType of ['CCCD', 'PASSPORT']) {
     const f = participationFixture(role, identityType);
     const created = await f.service.create(f.dto, account.id);
+    if (role === 'REFEREE') assert.equal(created.federationId ?? null, null, 'Referees may register without a unit');
     assert.equal(created.media.find((item) => item.type === 'AVATAR').mimeType, 'image/png');
     assert.ok(created.media.filter((item) => item.type !== 'AVATAR').every((item) => item.mimeType === 'application/pdf'
       && item.verificationStatus === 'VERIFIED'), 'PDF documents are verified when OCR is disabled');

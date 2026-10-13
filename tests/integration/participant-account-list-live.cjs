@@ -92,6 +92,14 @@ async function addAthlete(account, media, identityRecord = null) {
   athleteIds.push(athlete.id);
   return athlete;
 }
+async function addOwnMedia(account, identityType, media) {
+  const record = identityType ? identityKeys(account.displayName, identityType) : null;
+  await prisma.participantAccount.update({ where: { id: account.id }, data: {
+    identityType, documentEncrypted: record ? record.keys.cccdEncrypted || record.keys.passportEncrypted : null,
+    media: { create: media },
+  } });
+  return record?.documentNumber;
+}
 async function addParticipation(account, type, media, eventIndex = 0, metadata = true) {
   const identityRecord = type ? identityKeys(account.displayName, type) : null;
   const participation = await prisma.eventParticipation.create({ data: {
@@ -173,6 +181,26 @@ async function main() {
     await addAthlete(noNumber, await files(fullTypes('CCCD'), 'no-number'));
     const encryptedPassportWrong = await addAccount('O Encrypted Passport Wrong Files', 'ATHLETE', false);
     await addAthlete(encryptedPassportWrong, await files(fullTypes('CCCD'), 'passport-wrong-files'), identityKeys(encryptedPassportWrong.displayName, 'PASSPORT').keys);
+    const ownLeader = await addAccount('P Own Complete CCCD', 'TEAM_LEADER', true);
+    const ownLeaderNumber = await addOwnMedia(ownLeader, 'CCCD', await files(fullTypes('CCCD'), 'own-leader'));
+    const ownReferee = await addAccount('Q Own Complete Passport', 'REFEREE', true);
+    const ownRefereeNumber = await addOwnMedia(ownReferee, 'PASSPORT', await files(fullTypes('PASSPORT'), 'own-referee'));
+    await addParticipation(ownReferee, 'CCCD', await files(fullTypes('CCCD'), 'own-referee-old'));
+    const ownPartial = await addAccount('R Own Partial Replacement', 'COACH', false);
+    const ownPartialNumber = await addOwnMedia(ownPartial, 'CCCD', await files(['AVATAR', 'CCCD_FRONT'], 'own-partial'));
+    await addParticipation(ownPartial, 'PASSPORT', await files(fullTypes('PASSPORT'), 'own-partial-old'));
+    const ownUnknown = await addAccount('S Own Unknown Type', 'REFEREE', false);
+    await addOwnMedia(ownUnknown, null, await files(fullTypes('CCCD'), 'own-unknown'));
+    await addParticipation(ownUnknown, 'CCCD', await files(fullTypes('CCCD'), 'own-unknown-old'));
+    const ownInvalid = await addAccount('T Own Invalid Media', 'COACH', false);
+    const ownInvalidFiles = await files(fullTypes('PASSPORT'), 'own-invalid');
+    ownInvalidFiles.find((item) => item.type === 'AVATAR').storageKey = null;
+    await addOwnMedia(ownInvalid, 'PASSPORT', ownInvalidFiles);
+    await addParticipation(ownInvalid, 'PASSPORT', await files(fullTypes('PASSPORT'), 'own-invalid-old'));
+    const ownLinked = await addAccount('U Linked Ignores Own', 'ATHLETE', true, { identityType: 'CCCD' });
+    const ownLinkedIdentity = identityKeys(ownLinked.displayName);
+    await addOwnMedia(ownLinked, 'CCCD', await files(['AVATAR'], 'own-linked-dormant'));
+    await addAthlete(ownLinked, await files(fullTypes('CCCD'), 'own-linked-current'), ownLinkedIdentity.keys);
 
     const all = await list(adminToken);
     if (all.summary.complete !== expected.filter((item) => item.complete).length) {
@@ -193,6 +221,14 @@ async function main() {
     assert.equal(coachProfile.identityType, 'PASSPORT');
     assert.equal(coachProfile.documentNumber, oldCoach.documentNumber);
     assert.equal(all.items.find((item) => item.id === linked.id).profile.documentNumber, linkedIdentity.documentNumber);
+    assert.equal(all.items.find((item) => item.id === ownLeader.id).profile.documentNumber, ownLeaderNumber);
+    assert.equal(all.items.find((item) => item.id === ownReferee.id).profile.documentNumber, ownRefereeNumber);
+    const ownPartialProfile = all.items.find((item) => item.id === ownPartial.id).profile;
+    assert.equal(ownPartialProfile.complete, false);
+    assert.equal(ownPartialProfile.identityType, 'CCCD');
+    assert.equal(ownPartialProfile.documentNumber, ownPartialNumber);
+    assert.equal(all.items.find((item) => item.id === ownUnknown.id).profile.identityType, null);
+    assert.equal(all.items.find((item) => item.id === ownLinked.id).profile.documentNumber, ownLinkedIdentity.documentNumber);
     for (const item of all.items.flatMap((row) => row.profile.media)) assert.ok(item.mediaUrl.startsWith('/participant-auth/admin/accounts/'));
     for (const profileStatus of ['COMPLETE', 'INCOMPLETE']) {
       const selected = expected.filter((item) => item.complete === (profileStatus === 'COMPLETE'));
@@ -247,6 +283,20 @@ async function main() {
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
     }
     assert.equal((await request(`/participant-auth/admin/accounts/${coach.id}/media/CCCD_FRONT`, adminToken)).status, 404);
+    for (const [id, type, bytes, mimeType] of [
+      [ownLeader.id, 'CCCD_FRONT', pdf, 'application/pdf'],
+      [ownReferee.id, 'PASSPORT', pdf, 'application/pdf'],
+      [ownPartial.id, 'AVATAR', png, 'image/png'],
+      [ownLinked.id, 'CCCD_BACK', pdf, 'application/pdf'],
+    ]) {
+      const response = await request(`/participant-auth/admin/accounts/${id}/media/${type}`, adminToken);
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.ok(response.headers.get('content-type').includes(mimeType));
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+    }
+    assert.equal((await request(`/participant-auth/admin/accounts/${ownReferee.id}/media/CCCD_FRONT`, adminToken)).status, 404);
+    assert.equal((await request(`/participant-auth/admin/accounts/${ownPartial.id}/media/CCCD_BACK`, adminToken)).status, 404);
+    assert.equal((await request(`/participant-auth/admin/accounts/${ownInvalid.id}/media/AVATAR`, adminToken)).status, 404);
     assert.equal((await request(`/participant-auth/admin/accounts/${coach.id}/media/UNKNOWN`, adminToken)).status, 400);
     assert.equal((await request(`/participant-auth/admin/accounts/${coach.id}/media/AVATAR?variant=unknown`, adminToken)).status, 400);
     assert.equal((await request('/participant-auth/admin/accounts/missing/media/AVATAR', adminToken)).status, 404);

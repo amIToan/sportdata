@@ -89,7 +89,7 @@ async function main() {
     const token = account.accessToken;
     const common = { eventId, identityType: 'CCCD', documentNumber: signup.documentNumber };
     for (const role of ['REFEREE', 'TEAM_LEADER', 'COACH']) {
-      const payload = { ...common, role, federationId: federation.id, mediaUploads: await mediaUploads(),
+      const payload = { ...common, role, federationId: role === 'REFEREE' ? undefined : federation.id, mediaUploads: await mediaUploads(),
         contactName: 'Ignored Caller Name', contactEmail: 'ignored@check.invalid',
       };
       const record = await ok(await request('/participant-auth/event-participations', 'POST', payload, token));
@@ -98,7 +98,8 @@ async function main() {
       assert.equal(record.status, 'SUBMITTED');
       assert.equal(record.contactEmail, signup.email.toLowerCase());
       assert.equal(record.contactName, marker);
-      assert.equal(record.federation.id, federation.id);
+      if (role === 'REFEREE') assert.equal(record.federation, null, 'A referee can register without a unit');
+      else assert.equal(record.federation.id, federation.id);
       assert.equal(record.identityType, 'CCCD');
       assert(!('documentNumber' in record) && !('documentEncrypted' in record));
       const stored = await prisma.eventParticipation.findUniqueOrThrow({ where: { id: record.id }, include: { media: true } });
@@ -114,21 +115,23 @@ async function main() {
     assert.equal((await ok(await request('/participant-auth/event-participations', 'GET', null, second.accessToken), 200)).length, 0);
     assert.equal((await request('/participant-auth/event-participations')).status, 401);
     const guest = await ok(await request('/participant-auth/event-participations', 'POST', { ...common,
-      role: 'COACH', identityType: 'PASSPORT', documentNumber: 'GUEST12345', mediaUploads: await mediaUploads('PASSPORT'),
+      role: 'REFEREE', identityType: 'PASSPORT', documentNumber: 'GUEST12345', mediaUploads: await mediaUploads('PASSPORT'),
       contactName: 'Temporary Guest', contactEmail: `${marker}_GUEST@check.invalid`,
     }));
     ticketCodes.push(guest.referenceCode);
     assert.equal(guest.accountId, null);
+    assert.equal(guest.federation, null, 'A guest referee with a passport can register without a unit');
+    const invalidCommon = { ...common, mediaUploads: await mediaUploads() };
     for (const payload of [
-      { ...common, role: 'TEAM_LEADER' },
-      { ...common, role: 'REFEREE' },
-      { ...common, role: 'TEAM_LEADER', federationId: outside.id },
-      { ...common, role: 'TEAM_LEADER', federationId: 'missing-federation' },
-      { ...common, role: 'REFEREE', federationId: outside.id },
-      { ...common, role: 'COACH', federationId: outside.id },
-      { ...common, role: 'ATTENDEE' },
-      { ...common, role: 'MEDICAL_STAFF' },
-      { ...common, role: 'ATHLETE' },
+      { ...invalidCommon, role: 'TEAM_LEADER' },
+      { ...invalidCommon, role: 'TEAM_LEADER', federationId: outside.id },
+      { ...invalidCommon, role: 'TEAM_LEADER', federationId: 'missing-federation' },
+      { ...invalidCommon, role: 'REFEREE', federationId: outside.id },
+      { ...invalidCommon, role: 'REFEREE', federationId: 'missing-federation' },
+      { ...invalidCommon, role: 'COACH', federationId: outside.id },
+      { ...invalidCommon, role: 'ATTENDEE' },
+      { ...invalidCommon, role: 'MEDICAL_STAFF' },
+      { ...invalidCommon, role: 'ATHLETE' },
     ]) assert.equal((await request('/participant-auth/event-participations', 'POST', payload, token)).status, 400);
     assert.equal((await request('/participant-auth/event-participations', 'POST', { ...common, role: 'ATTENDEE' })).status, 400);
     const admin = await ok(await request('/auth/login', 'POST', { identifier: process.env.ADMIN_USERNAME || process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD }));
@@ -233,7 +236,7 @@ async function main() {
     assert.equal(await prisma.participantMediaUpload.count({ where: { id: { in: Object.values(windowPayload.mediaUploads).map((item) => item.id) } } }), 3,
       'Registration-window failures must not consume staged uploads');
     assert.equal(await prisma.athlete.count(), before);
-    console.log('PASS: supported roles, required encrypted identity/photos/unit, guest passport, upload consumption; approved role PDFs/avatar; email worker with PDF attachments (mock SMTP); duplicate email protection; revoked tickets; privacy, review, registration windows and unchanged athlete count.');
+    console.log('PASS: supported roles, required encrypted identity/photos, optional referee unit and required team-leader unit, guest passport, upload consumption; approved role PDFs/avatar; email worker with PDF attachments (mock SMTP); duplicate email protection; revoked tickets; privacy, review, registration windows and unchanged athlete count.');
   } finally {
     if (ticketCodes.length) await prisma.ticketEmailJob.deleteMany({ where: { ticketCode: { in: ticketCodes } } });
     if (eventId) await prisma.event.deleteMany({ where: { id: eventId, name: marker } });

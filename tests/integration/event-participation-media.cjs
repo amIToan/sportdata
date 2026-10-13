@@ -146,7 +146,8 @@ async function main() {
     { role: 'ATTENDEE' }, { role: 'MEDICAL_STAFF' }, { role: 'ATHLETE' },
     { identityType: undefined }, { identityType: 'OTHER' }, { documentNumber: undefined },
     { mediaUploads: undefined }, { mediaUploads: { ...base.mediaUploads, avatar: undefined } },
-    { mediaUploads: { ...base.mediaUploads, avatar: { id: 'avatar' } } }, { federationId: undefined },
+    { mediaUploads: { ...base.mediaUploads, avatar: { id: 'avatar' } } },
+    { role: 'TEAM_LEADER', federationId: undefined },
   ]) {
     const dto = plainToInstance(CreateEventParticipationDto, { ...base, ...input });
     assert((await validate(dto)).length > 0, `DTO must reject ${JSON.stringify(input)}`);
@@ -170,6 +171,22 @@ async function main() {
     assert.equal(test.state().uploads.size, 1, 'Successful registration consumes its staged uploads');
     assert.equal(test.athleteCalls(), 0);
     assert(!('documentEncrypted' in record), 'Encrypted identities must stay off API responses');
+  }
+  for (const identityType of ['CCCD', 'PASSPORT']) {
+    const payload = { ...base, federationId: undefined, identityType,
+      documentNumber: identityType === 'CCCD' ? base.documentNumber : 'REFEREE12345',
+      mediaUploads: identityType === 'CCCD' ? base.mediaUploads
+        : { avatar: reference('avatar'), passport: reference('passport') },
+    };
+    assert.equal((await validate(plainToInstance(CreateEventParticipationDto, payload))).length, 0,
+      `Referees may register with ${identityType} without selecting a unit`);
+    const test = fixture();
+    const record = await test.service.create(payload);
+    assert.equal(record.role, 'REFEREE');
+    assert.equal(record.federation, null);
+    assert.equal(test.state().records[0].federationId ?? null, null);
+    assert.deepEqual(test.state().records[0].media.map((item) => item.type).sort(),
+      identityType === 'CCCD' ? ['AVATAR', 'CCCD_BACK', 'CCCD_FRONT'] : ['AVATAR', 'PASSPORT']);
   }
   const passport = fixture();
   const guest = await passport.service.create({ ...base, role: 'COACH', federationId: undefined,
@@ -204,7 +221,7 @@ async function main() {
     { mediaUploads: { ...base.mediaUploads, cccdFront: { id: 'front', token: 'wrong-token' } } },
     { mediaUploads: { ...base.mediaUploads, cccdFront: reference('missing') } },
     { mediaUploads: { ...base.mediaUploads, cccdBack: reference('front') } },
-    { federationId: undefined }, { role: 'TEAM_LEADER', federationId: undefined },
+    { role: 'TEAM_LEADER', federationId: undefined },
     { federationId: 'outside-unit' }, { federationId: 'missing-unit' },
     { role: 'COACH', federationId: 'outside-unit' },
   ];
@@ -277,7 +294,7 @@ async function main() {
   stored.status = 'CANCELLED';
   await assert.rejects(ticketFixture.service.getPublicAvatar(participation.id), notFound);
   assert.equal((await ticketFixture.service.getTicket(participation.referenceCode, true)).assets.avatarData, null);
-  console.log('PASS: event roles, required media/identity/unit, encryption, staged upload security and transaction rollback; public ticket privacy/avatar/PDF assets and admin metadata.');
+  console.log('PASS: event roles, required media/identity, optional referee unit and required team-leader unit, encryption, staged upload security and transaction rollback; public ticket privacy/avatar/PDF assets and admin metadata.');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

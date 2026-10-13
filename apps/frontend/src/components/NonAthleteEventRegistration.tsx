@@ -104,7 +104,7 @@ export function NonAthleteEventRegistration({ eventId, role, embedded = false }:
             <Form.Item name="contactName" label="Họ và tên" rules={[{ required: true, whitespace: true, min: 2, max: 200 }]}><Input size="large" disabled={Boolean(profile)} autoComplete="name" /></Form.Item>
             <Form.Item name="contactEmail" label="Email liên hệ" rules={[{ required: true }, { type: 'email' }]}><Input size="large" disabled={Boolean(profile)} autoComplete="email" /></Form.Item>
             <Form.Item name="contactPhone" label="Số điện thoại"><Input size="large" maxLength={30} autoComplete="tel" /></Form.Item>
-            <Form.Item name="federationId" label="Đơn vị / CLB" rules={[{ required: role === 'TEAM_LEADER' || role === 'REFEREE', message: 'Vui lòng chọn đơn vị / CLB' }]}>
+            <Form.Item name="federationId" label="Đơn vị / CLB" rules={[{ required: role === 'TEAM_LEADER', message: 'Vui lòng chọn đơn vị / CLB' }]}>
               <Select size="large" showSearch allowClear optionFilterProp="label" placeholder="Chọn đơn vị / CLB" options={eligibleFederations.map((item) => ({ value: item.id, label: `${item.name}${item.country?.code ? ` · ${item.country.code}` : ''}` }))} />
             </Form.Item>
             <Form.Item name="identityType" label="Loại giấy tờ" rules={[{ required: true }]}>

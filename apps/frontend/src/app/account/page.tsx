@@ -4,13 +4,12 @@ import { ToastNotice } from '@/components/ToastNotice';
 
 import { ProtectedImage } from '@/components/ProtectedImage';
 
-import { useEffect, useMemo, useState, type ComponentProps } from 'react';
-import Link from 'next/link';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import dayjs, { type Dayjs } from 'dayjs';
 import { Avatar, Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber, Modal, Row, Segmented, Select, Spin, Tag, Upload } from 'antd';
-import { CreditCard, Download, Eye, FileCheck2, FileText, ImagePlus, Pencil, Save, ScanText, TicketCheck, UploadCloud, UserRound } from 'lucide-react';
+import { CreditCard, Eye, FileCheck2, FileText, ImagePlus, Pencil, Save, ScanText, TicketCheck, UploadCloud, UserRound } from 'lucide-react';
 import { CameraCaptureButton } from '@/components/CameraCaptureButton';
 import { IssuedAthleteTicket } from '@/components/IssuedAthleteTicket';
 import { distinctAthleteTickets, isTicketIssued } from '@/lib/athlete-tickets';
@@ -22,7 +21,10 @@ import { clearParticipantSession, getParticipantAccount, getParticipantToken, pa
 import { accountTypeLabel, type SportDataAccountType } from '@/lib/sportdata-account-types';
 import { TeamAccountPanel } from '@/components/TeamAccountPanel';
 import { MyEventParticipations } from '@/components/MyEventParticipations';
+import { ParticipationTicketActions } from '@/components/ParticipationTicketActions';
+import type { EventParticipation } from '@/lib/event-participation';
 import type { TicketStatistics } from '@/lib/ticket-types';
+import { optimizeRegistrationMedia } from '@/lib/registration-media';
 
 type MediaType = 'AVATAR' | 'CCCD_FRONT' | 'CCCD_BACK' | 'PASSPORT';
 type UploadRequestOption = Parameters<NonNullable<ComponentProps<typeof Upload>['customRequest']>>[0];
@@ -34,6 +36,7 @@ type Profile = {
   email: string;
   displayName: string;
   phone?: string | null;
+  identityType?: 'CCCD' | 'PASSPORT' | null;
   createdAt: string;
   athlete: {
     id: string;
@@ -115,8 +118,20 @@ const mediaLabels: Record<MediaType, string> = {
   AVATAR: 'Ảnh đại diện',
   CCCD_FRONT: 'CCCD mặt trước',
   CCCD_BACK: 'CCCD mặt sau',
-  PASSPORT: 'Hộ chiếu (nếu có)',
+  PASSPORT: 'Hộ chiếu',
 };
+const maxMediaBytes = 8 * 1024 * 1024;
+const imageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+function validateMediaFile(type: MediaType, file: File) {
+  if (!imageMimeTypes.includes(file.type) && !(type !== 'AVATAR' && file.type === 'application/pdf')) {
+    return type === 'AVATAR'
+      ? 'Ảnh đại diện phải là ảnh JPG, PNG hoặc WebP.'
+      : 'Giấy tờ phải là ảnh JPG, PNG, WebP hoặc tệp PDF.';
+  }
+  if (!file.size || file.size > maxMediaBytes) return 'Vui lòng chọn tệp có dung lượng từ 1 byte đến 8 MB.';
+  return null;
+}
 
 export default function ParticipantAccountPage() {
   const router = useRouter();
@@ -124,6 +139,10 @@ export default function ParticipantAccountPage() {
   const [profileForm] = Form.useForm<ProfileFormValues>();
   const [tab, setTab] = useState<'profile' | 'tickets'>('profile');
   const [mediaAssets, setMediaAssets] = useState<Partial<Record<MediaType, MediaAsset>>>({});
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaReload, setMediaReload] = useState(0);
+  const [uploadingMedia, setUploadingMedia] = useState<Partial<Record<MediaType, boolean>>>({});
+  const activeUploads = useRef(new Set<MediaType>());
   const [ocrReview, setOcrReview] = useState<{ type: MediaType; result: IdentityOcrResult }>();
   const [confirmingOcr, setConfirmingOcr] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -134,7 +153,10 @@ export default function ParticipantAccountPage() {
     authFetcher,
     { shouldRetryOnError: false },
   );
-  const { data: registrations = [], mutate: mutateRegistrations } = useSWR<Registration[]>(getParticipantToken() ? '/participant-auth/registrations' : null, authFetcher);
+  const { data: registrations = [], isLoading: registrationsLoading, error: registrationsError, mutate: mutateRegistrations } = useSWR<Registration[]>(getParticipantToken() ? '/participant-auth/registrations' : null, authFetcher);
+  const { data: participations = [], isLoading: participationsLoading, error: participationsError, mutate: mutateParticipations } = useSWR<EventParticipation[]>(
+    getParticipantToken() ? '/participant-auth/event-participations' : null, authFetcher, { refreshInterval: 30_000 },
+  );
   const ticketRows = distinctAthleteTickets(registrations, (item) => `${item.event.id}:${item.athlete.id}`);
   const { data: countries = [] } = useSWR<Country[]>('/countries', fetcher);
   const { data: federations = [] } = useSWR<Federation[]>('/federations', fetcher);
@@ -151,12 +173,20 @@ export default function ParticipantAccountPage() {
   const uploadedTypes = useMemo(() => new Set(mediaItems.map((item) => item.type)), [mediaItems]);
   const mediaByType = useMemo(() => new Map(mediaItems.map((item) => [item.type, item])), [mediaItems]);
   const cccdComplete = uploadedTypes.has('CCCD_FRONT') && uploadedTypes.has('CCCD_BACK');
-  const identityComplete = cccdComplete || uploadedTypes.has('PASSPORT');
-  const identityVerified = (
+  const passportComplete = uploadedTypes.has('PASSPORT');
+  const cccdVerified = (
     mediaByType.get('CCCD_FRONT')?.verificationStatus === 'VERIFIED'
     && mediaByType.get('CCCD_BACK')?.verificationStatus === 'VERIFIED'
-  ) || mediaByType.get('PASSPORT')?.verificationStatus === 'VERIFIED';
-  const identityRejected = mediaItems.some((item) => item.type !== 'AVATAR' && item.verificationStatus === 'REJECTED');
+  );
+  const passportVerified = mediaByType.get('PASSPORT')?.verificationStatus === 'VERIFIED';
+  const identityComplete = profile?.identityType === 'PASSPORT'
+    ? passportComplete : profile?.identityType === 'CCCD' ? cccdComplete : cccdComplete || passportComplete;
+  const identityVerified = profile?.identityType === 'PASSPORT'
+    ? passportVerified : profile?.identityType === 'CCCD' ? cccdVerified : cccdVerified || passportVerified;
+  const identityRejected = mediaItems.some((item) => item.type !== 'AVATAR'
+    && (profile?.identityType !== 'PASSPORT' || item.type === 'PASSPORT')
+    && (profile?.identityType !== 'CCCD' || item.type !== 'PASSPORT')
+    && item.verificationStatus === 'REJECTED');
 
   useEffect(() => {
     if (!getParticipantToken()) router.replace('/account/login');
@@ -170,13 +200,18 @@ export default function ParticipantAccountPage() {
   }, [error, router]);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     const objectUrls: string[] = [];
+    setMediaAssets({});
+    setMediaLoading(Boolean(mediaItems.length));
 
     const loadMedia = async () => {
       const entries = await Promise.all(mediaItems.map(async (item) => {
         try {
-          const response = await participantApi.get(`/participant-auth/me/media/${item.type}`, { responseType: 'blob', params: { variant: 'card' } });
+          const response = await participantApi.get(`/participant-auth/me/media/${item.type}`, {
+            responseType: 'blob', params: { variant: 'card' }, signal: controller.signal,
+          });
+          if (controller.signal.aborted) return null;
           const url = URL.createObjectURL(response.data);
           objectUrls.push(url);
           return [item.type, { url, mimeType: item.mimeType }] as const;
@@ -184,24 +219,40 @@ export default function ParticipantAccountPage() {
           return null;
         }
       }));
-      if (!cancelled) {
+      if (!controller.signal.aborted) {
         setMediaAssets(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))));
+        setMediaLoading(false);
       }
     };
 
     void loadMedia();
     return () => {
-      cancelled = true;
+      controller.abort();
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [mediaItems]);
+  }, [mediaItems, mediaReload]);
 
   const upload = async (type: MediaType, file: File) => {
-    const form = new FormData();
-    form.append('file', file);
+    if (activeUploads.current.has(type)) return false;
+    const validationError = validateMediaFile(type, file);
+    if (validationError) {
+      toast.error(validationError);
+      return false;
+    }
+    activeUploads.current.add(type);
+    setUploadingMedia((current) => ({ ...current, [type]: true }));
     try {
-      const response = await participantApi.post<{ ocr?: IdentityOcrResult }>(`/participant-auth/me/media/${type}`, form);
-      if (type !== 'AVATAR' && response.data.ocr?.status === 'COMPLETED') {
+      const preparedFile = file.type.startsWith('image/') ? await optimizeRegistrationMedia(file) : file;
+      const form = new FormData();
+      form.append('file', preparedFile);
+      const response = await participantApi.post<{
+        verificationStatus?: 'PENDING' | 'VERIFIED' | 'REJECTED' | null;
+        infoMessage?: string;
+        ocr?: IdentityOcrResult;
+      }>(`/participant-auth/me/media/${type}`, form);
+      if (type !== 'AVATAR' && response.data.verificationStatus === 'VERIFIED') {
+        toast.success(response.data.infoMessage || `Đã cập nhật và tự động duyệt ${mediaLabels[type].toLowerCase()}.`);
+      } else if (type !== 'AVATAR' && response.data.ocr?.status === 'COMPLETED') {
         setOcrReview({ type, result: response.data.ocr });
         toast.success('Đã đọc dữ liệu. Vui lòng kiểm tra và xác nhận thông tin trên giấy tờ.');
       } else if (type !== 'AVATAR' && response.data.ocr?.message) {
@@ -209,9 +260,17 @@ export default function ParticipantAccountPage() {
       } else {
         toast.success(`Đã cập nhật ${mediaLabels[type].toLowerCase()}.`);
       }
-      await Promise.all([mutate(), mutateRegistrations()]);
+      await Promise.allSettled([
+        mutate(),
+        ...(profile?.hasAthleteProfile !== false ? [mutateRegistrations()] : []),
+      ]);
+      return true;
     } catch (requestError) {
       toast.error(participantError(requestError, 'Tải tệp thất bại'));
+      return false;
+    } finally {
+      activeUploads.current.delete(type);
+      setUploadingMedia((current) => ({ ...current, [type]: false }));
     }
   };
 
@@ -231,8 +290,9 @@ export default function ParticipantAccountPage() {
   };
 
   const customUpload = (type: MediaType) => async (options: UploadRequestOption) => {
-    await upload(type, options.file as File);
-    options.onSuccess?.({});
+    const uploaded = await upload(type, options.file as File);
+    if (uploaded) options.onSuccess?.({});
+    else options.onError?.(new Error('Không thể tải tệp lên. Vui lòng thử lại.'));
   };
 
   const openProfileEditor = () => {
@@ -283,8 +343,8 @@ export default function ParticipantAccountPage() {
           <ToastNotice
             showIcon
             type="error"
-            message="Tài khoản chưa được liên kết với hồ sơ vận động viên"
-            description="Vui lòng đăng nhập lại. Nếu lỗi vẫn còn, quản trị viên cần kiểm tra và khôi phục liên kết giữa tài khoản và hồ sơ vận động viên."
+            message="Không thể tải thông tin tài khoản"
+            description="Vui lòng thử đăng nhập lại. Nếu lỗi vẫn còn, liên hệ quản trị viên để kiểm tra tài khoản SportData."
           />
           <Button
             block
@@ -322,7 +382,6 @@ export default function ParticipantAccountPage() {
         </header>
 
         {profile.accountTypes.includes('TEAM_LEADER') && profile.federationId && <TeamAccountPanel />}
-        <MyEventParticipations />
 
         <Segmented
           className="mb-6"
@@ -330,7 +389,7 @@ export default function ParticipantAccountPage() {
           onChange={(value) => setTab(value as typeof tab)}
           options={[
             { value: 'profile', label: 'Thông tin & giấy tờ', icon: <CreditCard className="h-4 w-4" /> },
-            { value: 'tickets', label: `Thẻ & hồ sơ đã đăng ký (${ticketRows.length})`, icon: <TicketCheck className="h-4 w-4" /> },
+            { value: 'tickets', label: `Thẻ & hồ sơ đã đăng ký (${ticketRows.length + participations.length})`, icon: <TicketCheck className="h-4 w-4" /> },
           ]}
         />
 
@@ -356,14 +415,11 @@ export default function ParticipantAccountPage() {
                 {profile.athlete.height != null && <div><dt className="text-slate-500">Chiều cao</dt><dd className="font-semibold text-slate-100">{profile.athlete.height} cm</dd></div>}
               </dl>
             </Card>
-            {profile.hasAthleteProfile === false ? (
-              <Card title="Thông tin Tài khoản SportData">
-                <p className="text-slate-400">Thông tin cá nhân và các loại tài khoản đã được lưu. Bạn có thể chọn sự kiện để gửi hồ sơ đăng ký VĐV cho bản thân hoặc cho người khác.</p>
-                <Link href="/events"><Button className="mt-4" type="primary">Xem sự kiện và đăng ký</Button></Link>
-              </Card>
-            ) : <Card
+            <Card
               title="Ảnh và giấy tờ xác minh"
-              extra={identityVerified
+              extra={!uploadedTypes.has('AVATAR')
+                ? <Tag color="warning">Thiếu ảnh đại diện</Tag>
+                : identityVerified
                 ? <Tag color="success">Đã xác thực</Tag>
                 : identityRejected
                   ? <Tag color="error">Cần tải lại</Tag>
@@ -371,16 +427,27 @@ export default function ParticipantAccountPage() {
                     ? <Tag color="processing">Chờ xác thực</Tag>
                     : <Tag color="warning">Thiếu giấy tờ</Tag>}
             >
-              <p className="mb-5 text-sm text-slate-400">Tải lên không đồng nghĩa đã xác thực. CCCD hai mặt hoặc hộ chiếu phải được OCR/CMS đối chiếu trước khi hồ sơ được duyệt.</p>
+              <p className="mb-2 text-sm text-slate-400">
+                {profile.identityType === 'PASSPORT'
+                  ? 'Tài khoản dùng hộ chiếu: cần ảnh đại diện và bản chụp hộ chiếu để đăng ký tham gia sự kiện.'
+                  : profile.identityType === 'CCCD'
+                    ? 'Tài khoản dùng CCCD: cần ảnh đại diện và CCCD đủ mặt trước, mặt sau để đăng ký tham gia sự kiện.'
+                    : 'Mọi tài khoản tham gia sự kiện cần ảnh đại diện và CCCD hai mặt hoặc hộ chiếu.'}
+              </p>
+              <p className="mb-5 text-sm text-slate-400">Bạn có thể tải lên hoặc thay tệp đã lưu tại đây. Ảnh hỗ trợ JPG, PNG, WebP; giấy tờ hỗ trợ thêm PDF, tối đa 8 MB mỗi tệp. Trạng thái xác thực của giấy tờ và trạng thái duyệt hồ sơ sự kiện được hiển thị riêng.</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {(Object.keys(mediaLabels) as MediaType[]).map((type) => {
                   const asset = mediaAssets[type];
                   const media = mediaByType.get(type);
                   const isPdf = asset?.mimeType === 'application/pdf';
+                  const required = type === 'AVATAR' || (profile.identityType === 'PASSPORT'
+                    ? type === 'PASSPORT' : profile.identityType === 'CCCD' ? type !== 'PASSPORT' : false);
                   return (
                     <div key={type} className="overflow-hidden rounded-xl border border-white/10">
                       <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
-                        <span className="font-semibold text-slate-100">{mediaLabels[type]}</span>
+                        <span className="font-semibold text-slate-100">
+                          {mediaLabels[type]}{required && <span className="ml-1 text-red-400" aria-label="Bắt buộc">*</span>}
+                        </span>
                         {!uploadedTypes.has(type)
                           ? <Tag>Chưa tải lên</Tag>
                           : type === 'AVATAR'
@@ -412,33 +479,57 @@ export default function ParticipantAccountPage() {
                             <FileText className="mx-auto mb-2 h-10 w-10 text-sky-400" />
                             <Button href={asset.url} target="_blank" icon={<Eye className="h-4 w-4" />}>Mở tệp PDF</Button>
                           </div>
-                        ) : (
+                        ) : mediaLoading && media ? <Spin /> : (
                           <div className="text-center text-slate-500">
                             {type === 'AVATAR' ? <UserRound className="mx-auto mb-2 h-10 w-10" /> : <CreditCard className="mx-auto mb-2 h-10 w-10" />}
-                            <span className="text-sm">Chưa tải lên</span>
+                            <span className="text-sm">{media ? 'Không thể tải tệp đã lưu' : 'Chưa tải lên'}</span>
+                            {media && <Button className="mt-2" size="small" onClick={() => setMediaReload((current) => current + 1)}>Thử lại</Button>}
                           </div>
                         )}
                       </div>
                       {media?.verificationStatus === 'REJECTED' && media.verificationNote && (
                         <p className="px-4 pt-3 text-xs text-red-400">Lý do: {media.verificationNote}</p>
                       )}
+                      {media && <p className="px-4 pt-3 text-xs text-slate-400">
+                        {media.mimeType === 'application/pdf' ? 'PDF' : media.mimeType.replace('image/', '').toUpperCase()}
+                        {' · '}{(media.size / 1024).toLocaleString('vi-VN', { maximumFractionDigits: 0 })} KB
+                        {' · '}Cập nhật {new Date(media.updatedAt).toLocaleDateString('vi-VN')}
+                      </p>}
                       <div className="flex flex-wrap gap-2 p-4">
-                        <Upload accept={type === 'AVATAR' ? 'image/*' : 'image/*,application/pdf'} showUploadList={false} customRequest={customUpload(type)}>
-                          <Button icon={type === 'AVATAR' ? <ImagePlus className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}>Chọn tệp</Button>
+                        <Upload
+                          accept={type === 'AVATAR' ? 'image/jpeg,image/png,image/webp' : 'image/jpeg,image/png,image/webp,application/pdf'}
+                          showUploadList={false}
+                          disabled={uploadingMedia[type]}
+                          beforeUpload={(file) => {
+                            const validationError = validateMediaFile(type, file);
+                            if (!validationError) return true;
+                            toast.error(validationError);
+                            return Upload.LIST_IGNORE;
+                          }}
+                          customRequest={customUpload(type)}
+                        >
+                          <Button loading={uploadingMedia[type]} icon={type === 'AVATAR' ? <ImagePlus className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}>
+                            {uploadingMedia[type] ? 'Đang tải lên' : media ? 'Thay tệp' : 'Chọn tệp'}
+                          </Button>
                         </Upload>
                         <CameraCaptureButton
+                          disabled={uploadingMedia[type]}
                           facingMode={type === 'AVATAR' ? 'user' : 'environment'}
-                          onCapture={(file) => upload(type, file)}
+                          onCapture={async (file) => { await upload(type, file); }}
                         />
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </Card>}
+            </Card>
           </div>
-        ) : registrations.length ? (
+        ) : (
           <div className="mx-auto max-w-4xl space-y-7">
+            <MyEventParticipations participations={participations} isLoading={participationsLoading} error={participationsError}
+              onRetry={() => void mutateParticipations()} hideWhenEmpty />
+            {registrationsLoading && <Card><Spin /></Card>}
+            {registrationsError && <Card><p className="mb-3">Không thể tải thẻ VĐV. Vui lòng thử lại.</p><Button onClick={() => void mutateRegistrations()}>Thử lại</Button></Card>}
             {ticketRows.map((registration) => {
               const ticketIssued = isTicketIssued(registration);
               return (
@@ -479,20 +570,15 @@ export default function ParticipantAccountPage() {
                           : 'Chờ thanh toán'}
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <Link href={`/tickets/${encodeURIComponent(registration.ticketCode)}`} target="_blank">
-                      <Button icon={<Eye className="h-4 w-4" />}>{ticketIssued ? 'Xem thẻ' : 'Theo dõi hồ sơ'}</Button>
-                    </Link>
-                    {ticketIssued ? (
-                      <Button href={`/api/participant-auth/tickets/${encodeURIComponent(registration.ticketCode)}/pdf`} icon={<Download className="h-4 w-4" />}>Tải PDF</Button>
-                    ) : null}
+                    <ParticipationTicketActions code={registration.ticketCode} status={ticketIssued ? 'CONFIRMED' : registration.status === 'CONFIRMED' ? 'SUBMITTED' : registration.status} />
                   </div>
                 </div>
               </div>
               );
             })}
+            {!registrationsLoading && !participationsLoading && !registrationsError && !participationsError
+              && !ticketRows.length && !participations.length && <Card><Empty description="Bạn chưa có thẻ hoặc hồ sơ tham gia sự kiện" /></Card>}
           </div>
-        ) : (
-          <Card><Empty description="Bạn chưa có thẻ tham dự nào" /></Card>
         )}
       </div>
       <Modal

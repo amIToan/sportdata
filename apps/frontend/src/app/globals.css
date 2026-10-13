@@ -6215,32 +6215,57 @@ html[data-app-theme="light"] .registration-document-empty {
 }
 
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 12mm;
+  @page participation-ticket {
+    size: 105mm 148mm;
+    margin: 0;
   }
 
-  .public-site-header,
-  .ticket-page-controls,
-  .ticket-details {
+  body:has(.ticket-verification-page) .public-site-header,
+  body:has(.ticket-verification-page) footer,
+  body:has(.ticket-verification-page) .ticket-page-controls,
+  body:has(.ticket-verification-page) .ticket-details,
+  body:has(.ticket-verification-page) .ant-drawer,
+  body:has(.ticket-verification-page) .ant-message,
+  body:has(.ticket-verification-page) .ant-notification,
+  body:has(.ticket-verification-page) nextjs-portal,
+  .ticket-verification-page:not(:has(.event-pass-card)) {
     display: none !important;
   }
 
-  html,
-  body,
+  html:has(.ticket-verification-page),
+  body:has(.ticket-verification-page),
+  body:has(.ticket-verification-page) .ant-app,
+  body:has(.ticket-verification-page) .min-h-screen,
   .ticket-verification-page {
     min-height: 0 !important;
     background: #ffffff !important;
   }
 
   .ticket-verification-page {
+    page: participation-ticket;
+    width: 105mm !important;
+    margin: 0 !important;
     padding: 0 !important;
   }
 
-  .event-pass-card {
+  .ticket-verification-page .ticket-pass-stage {
+    margin: 0 !important;
+  }
+
+  .ticket-verification-page .event-pass-card {
+    width: 105mm !important;
+    height: 148mm !important;
+    max-width: none !important;
+    margin: 0 !important;
     break-inside: avoid;
-    border: 1px solid #cbd5e1 !important;
+    border: 0 !important;
     box-shadow: none !important;
+  }
+
+  .ticket-verification-page .event-pass-card,
+  .ticket-verification-page .event-pass-card * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 

@@ -376,6 +376,7 @@ model ParticipantAccount {
   resetPasswordRequestedAt DateTime?
   passwordChangedAt      DateTime?
   athlete                Athlete?
+  media                  ParticipantAccountMedia[]
   registrations          EventRegistration[]
   submissions            RegistrationSubmission[]
   createdAt              DateTime                  @default(now())
@@ -687,6 +688,28 @@ model ParticipantMediaUpload {
   createdAt DateTime         @default(now())
 
   @@index([expiresAt])
+}
+
+model ParticipantAccountMedia {
+  id                 String                      @id @default(cuid())
+  accountId          String
+  account            ParticipantAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type               AthleteMediaType
+  storageKey         String?
+  mimeType           String
+  size               Int
+  verificationStatus DocumentVerificationStatus?
+  verificationNote   String?
+  verifiedAt         DateTime?
+  verifiedBy         String?
+  ocrStatus          DocumentOcrStatus             @default(NOT_REQUESTED)
+  ocrProvider        String?
+  ocrConfidence      Float?
+  ocrData            Json?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  @@unique([accountId, type])
 }
 
 model RegistrationSubmission {

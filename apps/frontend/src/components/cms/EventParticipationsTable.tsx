@@ -38,7 +38,7 @@ function ParticipationMediaPreview({ id, media }: { id: string; media: NonNullab
 }
 
 export function EventParticipationsTable({ eventId }: { eventId?: string }) {
-  const { data = [], isLoading, mutate, error } = useSWR<EventParticipation[]>(`/participant-auth/admin/event-participations${eventId ? `?eventId=${eventId}` : ''}`, fetcher);
+  const { data = [], isLoading, mutate, error } = useSWR<EventParticipation[]>(`/participant-auth/admin/event-participations${eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''}`, fetcher);
   const { data: user } = useSWR<{ role?: string }>('/auth/profile', fetcher);
   const [review, setReview] = useState<EventParticipation>();
   const [status, setStatus] = useState('CONFIRMED');

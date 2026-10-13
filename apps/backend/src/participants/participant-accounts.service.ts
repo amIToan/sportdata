@@ -55,7 +55,7 @@ const missingPassportIdentity: Prisma.AthleteWhereInput = { OR: [
 
 // Nullable comparisons need explicit presence guards: NOT(complete) must remain a
 // boolean in PostgreSQL so legacy accounts cannot disappear from both filters.
-const completeProfileWhere: Prisma.ParticipantAccountWhereInput = { OR: [
+const legacyCompleteProfileWhere: Prisma.ParticipantAccountWhereInput = { OR: [
   { identityType: { equals: 'CCCD', not: null }, athlete: { is: { AND: [
     { media: { some: mediaWhere(AthleteMediaType.AVATAR) } },
     { media: { some: mediaWhere(AthleteMediaType.CCCD_FRONT) } },
@@ -92,10 +92,28 @@ const completeProfileWhere: Prisma.ParticipantAccountWhereInput = { OR: [
   { eventParticipations: { some: completeParticipationWhere } },
 ] };
 
+const completeProfileWhere: Prisma.ParticipantAccountWhereInput = { OR: [
+  { AND: [
+    { athlete: { is: null } },
+    { media: { some: mediaWhere(AthleteMediaType.AVATAR) } },
+    { OR: [
+      { identityType: { equals: 'CCCD', not: null }, AND: [
+        { media: { some: mediaWhere(AthleteMediaType.CCCD_FRONT) } },
+        { media: { some: mediaWhere(AthleteMediaType.CCCD_BACK) } },
+      ] },
+      { identityType: { equals: 'PASSPORT', not: null }, media: { some: mediaWhere(AthleteMediaType.PASSPORT) } },
+    ] },
+  ] },
+  { AND: [
+    { OR: [{ athlete: { isNot: null } }, { media: { none: {} } }] },
+    legacyCompleteProfileWhere,
+  ] },
+] };
+
 const accountSelect = {
   id: true, email: true, displayName: true, phone: true, accountType: true, accountTypes: true,
   representativePosition: true, verificationStatus: true, isActive: true, createdAt: true,
-  identityType: true,
+  identityType: true, documentEncrypted: true, media: { select: mediaSelect },
   federation: { select: { id: true, name: true, country: { select: { code: true, name: true } } } },
   athlete: { select: {
     identity: { select: { cccdEncrypted: true, passportEncrypted: true } },
@@ -153,8 +171,9 @@ export class ParticipantAccountsService {
   }
 
   private async addCompleteFallbacks(accounts: AccountRecord[], database: Prisma.TransactionClient = this.prisma) {
-    const incomplete = accounts.filter((account) => !accountProfileState(selectAccountProfileSource(account)).complete
-      || (account.accountType !== SportDataAccountType.ATHLETE && !accountProfileState(selectAccountProfileSource({ ...account, athlete: null })).complete));
+    const incomplete = accounts.filter((account) => !(account.athlete === null && account.media?.length)
+      && (!accountProfileState(selectAccountProfileSource(account)).complete
+      || (account.accountType !== SportDataAccountType.ATHLETE && !accountProfileState(selectAccountProfileSource({ ...account, athlete: null, media: [] })).complete)));
     if (!incomplete.length) return;
     const fallbacks = await database.participantAccount.findMany({
       where: { id: { in: incomplete.map((account) => account.id) } },
@@ -170,7 +189,7 @@ export class ParticipantAccountsService {
   }
 
   private serialize(account: AccountRecord) {
-    const { athlete, eventParticipations, identityType, ...publicAccount } = account;
+    const { athlete, eventParticipations, identityType, documentEncrypted, media, ...publicAccount } = account;
     const source = selectAccountProfileSource(account);
     const selectedTypes = accountProfileMediaTypes(source);
     let documentNumber: string | undefined;

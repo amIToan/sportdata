@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { Button, Card, Input, Modal, Select, Table, Tag, Typography } from 'antd';
 import { CheckCircle2, Eye, RefreshCw, TicketCheck, XCircle } from 'lucide-react';
@@ -47,13 +47,17 @@ type EventItem = { id: string; name: string };
 
 export default function CmsRegistrationsPage() {
   const [eventId, setEventId] = useState('');
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('eventId');
+    if (requested) setEventId(requested);
+  }, []);
   const toast = useSportDataToast();
   const [pendingStatus, setPendingStatus] = useState<{ item: Registration; status: string }>();
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>();
   const { data: registrations = [], isLoading, mutate } = useSWR<Registration[]>(
-    `/participant-auth/admin/registrations${eventId ? `?eventId=${eventId}` : ''}`,
+    `/participant-auth/admin/registrations${eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''}`,
     fetcher,
   );
   const { data: eventResponse } = useSWR<{ items: EventItem[] }>('/events?limit=200', fetcher);

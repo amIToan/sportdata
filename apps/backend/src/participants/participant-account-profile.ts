@@ -17,6 +17,8 @@ export type AccountProfileSource = {
 type ProfileAccount = {
   accountType: SportDataAccountType;
   identityType: string | null;
+  documentEncrypted?: string | null;
+  media?: AccountProfileMedia[];
   athlete: {
     identity: { cccdEncrypted: string | null; passportEncrypted: string | null } | null;
     media: AccountProfileMedia[];
@@ -80,6 +82,15 @@ export function accountProfileMediaTypes(source: AccountProfileSource | null): A
 
 // Keep a document number and all of its files together; never fill gaps by combining registrations.
 export function selectAccountProfileSource(account: ProfileAccount): AccountProfileSource | null {
+  // Account uploads are the current profile until an athlete is linked. Incomplete
+  // replacements must stay visible instead of falling back to older event files.
+  if (!account.athlete && account.media?.length) {
+    return {
+      identityType: account.identityType === 'CCCD' || account.identityType === 'PASSPORT' ? account.identityType : null,
+      documentEncrypted: account.documentEncrypted || null,
+      media: account.media,
+    };
+  }
   const athlete = athleteSource(account);
   const participations = account.eventParticipations.map(participationSource);
   const candidates = account.accountType === SportDataAccountType.ATHLETE

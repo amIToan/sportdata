@@ -459,6 +459,7 @@ export class ParticipantsService {
         createdAt: true,
         accountType: true,
         accountTypes: true,
+        media: { select: mediaSelect, orderBy: { type: 'asc' } },
         athlete: {
           include: {
             country: true,
@@ -487,7 +488,7 @@ export class ParticipantsService {
       }
     }
     const { documentHash, ...publicAccount } = account;
-    if (account.athlete) return { ...publicAccount, hasAthleteProfile: true, athlete: account.athlete };
+    if (account.athlete) return { ...publicAccount, media: account.athlete.media, hasAthleteProfile: true, athlete: account.athlete };
     const country = account.countryId ? await this.prisma.country.findUniqueOrThrow({ where: { id: account.countryId } })
       : { id: '', code: '', name: 'Chưa cập nhật' };
     const federation = account.federationId ? await this.prisma.federation.findUnique({
@@ -498,7 +499,7 @@ export class ParticipantsService {
       id: '', fullName: account.displayName, ...this.splitName(account.displayName),
       email: account.email, phone: account.phone, gender: account.gender || Gender.MIXED,
       birthDate: account.birthDate, countryId: account.countryId || country.id, federationId: account.federationId,
-      weight: account.weight, height: account.height, photoUrl: null, country, federation, media: [],
+      weight: account.weight, height: account.height, photoUrl: null, country, federation, media: account.media,
     };
     return { ...publicAccount, hasAthleteProfile: false, athlete };
   }
@@ -507,6 +508,28 @@ export class ParticipantsService {
     const profile = await this.getProfile(accountId);
     if (!profile.hasAthleteProfile) throw new BadRequestException('Vui lòng đăng ký tham dự sự kiện để tạo hồ sơ VĐV.');
     return profile;
+  }
+
+  private assertAccountMediaType(type: AthleteMediaType) {
+    if (!Object.values(AthleteMediaType).includes(type)) {
+      throw new BadRequestException('Loại tệp không hợp lệ');
+    }
+  }
+
+  private async lockMediaAccount(transaction: Prisma.TransactionClient, accountId: string) {
+    await transaction.$queryRaw`SELECT id FROM "ParticipantAccount" WHERE id = ${accountId} FOR UPDATE`;
+    const account = await transaction.participantAccount.findUnique({
+      where: { id: accountId },
+      select: {
+        id: true, isActive: true, displayName: true, phone: true, gender: true, birthDate: true,
+        countryId: true, federationId: true, identityType: true, documentHash: true,
+        athlete: { select: { id: true, fullName: true, phone: true, gender: true, birthDate: true,
+          countryId: true, federationId: true } },
+      },
+    });
+    if (!account) throw new NotFoundException('Không tìm thấy tài khoản SportData');
+    if (!account.isActive) throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa');
+    return account;
   }
 
   async updateProfile(accountId: string, dto: UpdateParticipantProfileDto) {
@@ -569,8 +592,9 @@ export class ParticipantsService {
   }
 
   async upsertMedia(accountId: string, type: AthleteMediaType, file?: Express.Multer.File) {
+    this.assertAccountMediaType(type);
     if (!file) throw new BadRequestException('Vui lòng chọn tệp cần tải lên');
-    const profile = await this.getAthleteProfile(accountId);
+    await this.getProfile(accountId);
     this.validateFile(type, file);
     const settings = await this.systemSettings.get();
     const autoVerify = type !== AthleteMediaType.AVATAR && !settings.values.identityOcrEnabled;
@@ -580,46 +604,65 @@ export class ParticipantsService {
       : autoVerify
         ? DocumentVerificationStatus.VERIFIED
         : DocumentVerificationStatus.PENDING;
-    const previous = await this.prisma.athleteMedia.findUnique({
-      where: { athleteId_type: { athleteId: profile.athlete.id, type } },
-      select: { storageKey: true },
-    });
-    const storedMedia = await this.storage.withUpload(file, type === AthleteMediaType.AVATAR ? 'athletes/avatars' : 'athletes/documents', previous?.storageKey, (storageKey, stored) => this.prisma.athleteMedia.upsert({
-      where: { athleteId_type: { athleteId: profile.athlete.id, type } },
-      create: {
-        athleteId: profile.athlete.id,
-        type,
-        storageKey,
-        mimeType: file.mimetype,
-        size: stored.size,
-        verificationStatus,
-        verificationNote: autoVerify ? 'Tự động duyệt vì OCR CCCD / Hộ chiếu đang tắt.' : null,
-        verifiedAt: autoVerify ? new Date() : null,
-        verifiedBy: autoVerify ? 'SYSTEM:OCR_DISABLED' : null,
-        ...(ocr ? this.ocrPersistence(ocr) : {}),
-      },
-      update: {
-        storageKey,
-        mimeType: file.mimetype,
-        size: stored.size,
-        verificationStatus,
-        verificationNote: autoVerify ? 'Tự động duyệt vì OCR CCCD / Hộ chiếu đang tắt.' : null,
-        verifiedAt: autoVerify ? new Date() : null,
-        verifiedBy: autoVerify ? 'SYSTEM:OCR_DISABLED' : null,
-        ...(ocr ? this.ocrPersistence(ocr) : {
-          ocrStatus: DocumentOcrStatus.NOT_REQUESTED,
-          ocrProvider: null,
-          ocrConfidence: null,
-          ocrData: Prisma.DbNull,
-        }),
-      },
-    }));
-    if (type === AthleteMediaType.AVATAR) {
-      await this.prisma.athlete.update({
-        where: { id: profile.athlete.id },
-        data: { photoUrl: `/api/participant-auth/avatar/${profile.athlete.id}` },
+    const stored = await this.storage.upload(file.buffer, file.mimetype,
+      type === AthleteMediaType.AVATAR ? 'participants/avatars' : 'participants/documents');
+    let previousKey: string | null = null;
+    let storedMedia: { mimeType: string; size: number };
+    try {
+      storedMedia = await this.prisma.$transaction(async (transaction) => {
+        // Lock the account even when this media type has never been uploaded.
+        // The previous key must be read under the same lock as its replacement.
+        const account = await this.lockMediaAccount(transaction, accountId);
+        const athleteId = account.athlete?.id;
+        if (athleteId) {
+          await transaction.$queryRaw`SELECT id FROM "AthleteMedia" WHERE "athleteId" = ${athleteId} AND type::text = ${type} FOR UPDATE`;
+        } else {
+          await transaction.$queryRaw`SELECT id FROM "ParticipantAccountMedia" WHERE "accountId" = ${accountId} AND type::text = ${type} FOR UPDATE`;
+        }
+        const data = {
+          storageKey: stored.key,
+          mimeType: file.mimetype,
+          size: stored.size,
+          verificationStatus,
+          verificationNote: autoVerify ? 'Tự động duyệt vì OCR CCCD / Hộ chiếu đang tắt.' : null,
+          verifiedAt: autoVerify ? new Date() : null,
+          verifiedBy: autoVerify ? 'SYSTEM:OCR_DISABLED' : null,
+          ...(ocr ? this.ocrPersistence(ocr) : {
+            ocrStatus: DocumentOcrStatus.NOT_REQUESTED,
+            ocrProvider: null,
+            ocrConfidence: null,
+            ocrData: Prisma.DbNull,
+          }),
+        };
+        if (athleteId) {
+          const previous = await transaction.athleteMedia.findUnique({
+            where: { athleteId_type: { athleteId, type } }, select: { storageKey: true },
+          });
+          previousKey = previous?.storageKey || null;
+          const media = await transaction.athleteMedia.upsert({
+            where: { athleteId_type: { athleteId, type } },
+            create: { athleteId, type, ...data }, update: data, select: mediaSelect,
+          });
+          if (type === AthleteMediaType.AVATAR) {
+            await transaction.athlete.update({ where: { id: athleteId },
+              data: { photoUrl: `/api/participant-auth/avatar/${athleteId}` } });
+          }
+          return media;
+        }
+        const previous = await transaction.participantAccountMedia.findUnique({
+          where: { accountId_type: { accountId, type } }, select: { storageKey: true },
+        });
+        previousKey = previous?.storageKey || null;
+        return transaction.participantAccountMedia.upsert({
+          where: { accountId_type: { accountId, type } },
+          create: { accountId, type, ...data }, update: data, select: mediaSelect,
+        });
       });
+    } catch (error) {
+      await this.storage.deleteQuietly(stored.key);
+      throw error;
     }
+    await this.storage.deleteQuietly(previousKey);
     return { type, mimeType: storedMedia.mimeType, size: storedMedia.size, verificationStatus, ocr };
   }
 
@@ -633,67 +676,95 @@ export class ParticipantsService {
   }
 
   async confirmIdentityOcr(accountId: string, type: AthleteMediaType, dto: ConfirmIdentityOcrDto) {
+    this.assertAccountMediaType(type);
     if (type === AthleteMediaType.AVATAR) throw new BadRequestException('Ảnh đại diện không có dữ liệu OCR');
-    const profile = await this.getAthleteProfile(accountId);
-    const media = await this.prisma.athleteMedia.findUnique({
-      where: { athleteId_type: { athleteId: profile.athlete.id, type } },
-    });
-    if (!media) throw new NotFoundException('Chưa có giấy tờ để xác nhận');
-    if (media.ocrStatus !== DocumentOcrStatus.COMPLETED) {
-      throw new BadRequestException('Giấy tờ chưa được OCR thành công');
-    }
-
+    await this.getProfile(accountId);
     const { applyToProfile, ...confirmedFields } = dto;
-    const previous = media.ocrData && typeof media.ocrData === 'object' && !Array.isArray(media.ocrData)
-      ? media.ocrData as Record<string, unknown>
-      : {};
     await this.prisma.$transaction(async (transaction) => {
-      await this.athleteIdentity.lock(transaction);
-      const identity = await this.athleteIdentity.assertNew(transaction, {
-        fullName: applyToProfile && confirmedFields.fullName ? confirmedFields.fullName : profile.athlete.fullName,
-        birthDate: applyToProfile && confirmedFields.dateOfBirth ? new Date(confirmedFields.dateOfBirth) : profile.athlete.birthDate,
-        gender: applyToProfile ? this.ocrGender(confirmedFields.sex) || profile.athlete.gender : profile.athlete.gender,
-        countryId: profile.athlete.countryId, federationId: profile.athlete.federationId,
-        phone: profile.athlete.phone, identityType: type === AthleteMediaType.PASSPORT ? 'PASSPORT' : 'CCCD',
-        documentNumber: confirmedFields.documentNumber, address: confirmedFields.address,
-      }, profile.athlete.id);
-      await transaction.athleteIdentity.upsert({
-        where: { athleteId: profile.athlete.id },
-        create: { athleteId: profile.athlete.id, ...identity },
-        update: {
-          ...(identity.documentHash ? { documentHash: identity.documentHash } : {}),
-          cccdHash: identity.cccdHash,
-          cccdEncrypted: identity.cccdEncrypted,
-          passportHash: identity.passportHash,
-          passportEncrypted: identity.passportEncrypted,
-          ...(identity.addressHash ? { addressHash: identity.addressHash } : {}),
-        },
-      });
-      await transaction.athleteMedia.update({
-        where: { athleteId_type: { athleteId: profile.athlete.id, type } },
-        data: {
-          ocrData: {
-            ...previous,
-            confirmedFields,
-            userConfirmed: true,
-            confirmedAt: new Date().toISOString(),
-          } as Prisma.InputJsonValue,
-        },
-      });
+      if (applyToProfile) await this.athleteIdentity.lock(transaction);
+      const account = await this.lockMediaAccount(transaction, accountId);
+      const athlete = account.athlete;
+      if (athlete) {
+        await transaction.$queryRaw`SELECT id FROM "AthleteMedia" WHERE "athleteId" = ${athlete.id} AND type::text = ${type} FOR UPDATE`;
+      } else {
+        await transaction.$queryRaw`SELECT id FROM "ParticipantAccountMedia" WHERE "accountId" = ${accountId} AND type::text = ${type} FOR UPDATE`;
+      }
+      const media = athlete
+        ? await transaction.athleteMedia.findUnique({ where: { athleteId_type: { athleteId: athlete.id, type } } })
+        : await transaction.participantAccountMedia.findUnique({ where: { accountId_type: { accountId, type } } });
+      if (!media) throw new NotFoundException('Chưa có giấy tờ để xác nhận');
+      if (media.ocrStatus !== DocumentOcrStatus.COMPLETED) {
+        throw new BadRequestException('Giấy tờ chưa được OCR thành công');
+      }
+      const previous = media.ocrData && typeof media.ocrData === 'object' && !Array.isArray(media.ocrData)
+        ? media.ocrData as Record<string, unknown>
+        : {};
       if (applyToProfile) {
         const fullName = confirmedFields.fullName?.trim();
         const gender = this.ocrGender(confirmedFields.sex);
-        await transaction.athlete.update({
-          where: { id: profile.athlete.id },
-          data: {
-            ...(fullName ? { fullName, ...this.splitName(fullName) } : {}),
-            ...(confirmedFields.dateOfBirth ? { birthDate: new Date(confirmedFields.dateOfBirth) } : {}),
-            ...(gender ? { gender } : {}),
-          },
-        });
-        if (fullName) {
-          await transaction.participantAccount.update({ where: { id: accountId }, data: { displayName: fullName } });
+        const identityType: 'CCCD' | 'PASSPORT' = type === AthleteMediaType.PASSPORT ? 'PASSPORT' : 'CCCD';
+        const input = {
+          fullName: fullName || athlete?.fullName || account.displayName,
+          birthDate: confirmedFields.dateOfBirth ? new Date(confirmedFields.dateOfBirth) : athlete?.birthDate || account.birthDate,
+          gender: gender || athlete?.gender || account.gender || Gender.MIXED,
+          countryId: athlete?.countryId || account.countryId || '',
+          federationId: athlete?.federationId || account.federationId,
+          phone: athlete?.phone || account.phone, identityType,
+          documentNumber: confirmedFields.documentNumber, address: confirmedFields.address,
+        };
+        const normalized = this.athleteIdentity.normalize(input);
+        const isPrimaryDocument = !account.identityType || account.identityType === identityType;
+        if (isPrimaryDocument && account.documentHash && normalized.documentHash
+          && account.documentHash !== normalized.documentHash) {
+          throw new ConflictException('Số giấy tờ không khớp với giấy tờ đã đăng ký cho tài khoản.');
         }
+        if (normalized.documentHash) {
+          const duplicate = await transaction.participantAccount.findFirst({
+            where: { documentHash: normalized.documentHash, id: { not: accountId } }, select: { id: true },
+          });
+          if (duplicate) throw new ConflictException('Giấy tờ này đã được liên kết với một tài khoản SportData.');
+        }
+        if (athlete) {
+          const identity = await this.athleteIdentity.assertNew(transaction, input, athlete.id);
+          await transaction.athleteIdentity.upsert({
+            where: { athleteId: athlete.id },
+            create: { athleteId: athlete.id, ...identity,
+              documentHash: isPrimaryDocument ? identity.documentHash : account.documentHash },
+            update: {
+              ...(identity.documentHash && isPrimaryDocument ? { documentHash: identity.documentHash } : {}),
+              cccdHash: identity.cccdHash, cccdEncrypted: identity.cccdEncrypted,
+              passportHash: identity.passportHash, passportEncrypted: identity.passportEncrypted,
+              ...(identity.addressHash ? { addressHash: identity.addressHash } : {}),
+            },
+          });
+          await transaction.athlete.update({
+            where: { id: athlete.id }, data: {
+              ...(fullName ? { fullName, ...this.splitName(fullName) } : {}),
+              ...(confirmedFields.dateOfBirth ? { birthDate: input.birthDate } : {}),
+              ...(gender ? { gender } : {}),
+            },
+          });
+        } else if (normalized.documentHash) {
+          const matches = await this.athleteIdentity.findDocumentMatches(transaction, input);
+          if (matches.length) throw new ConflictException('Giấy tờ định danh đã được sử dụng cho một hồ sơ VĐV.');
+        }
+        await transaction.participantAccount.update({ where: { id: accountId }, data: {
+          ...(fullName ? { displayName: fullName } : {}),
+          ...(confirmedFields.dateOfBirth ? { birthDate: input.birthDate } : {}),
+          ...(gender ? { gender } : {}),
+          ...(isPrimaryDocument && normalized.documentHash ? {
+            identityType, documentHash: normalized.documentHash,
+            documentEncrypted: identityType === 'CCCD' ? normalized.cccdEncrypted : normalized.passportEncrypted,
+          } : {}),
+        } });
+      }
+      const data = { ocrData: {
+        ...previous, confirmedFields, userConfirmed: true, confirmedAt: new Date().toISOString(),
+      } as Prisma.InputJsonValue };
+      if (athlete) {
+        await transaction.athleteMedia.update({ where: { athleteId_type: { athleteId: athlete.id, type } }, data });
+      } else {
+        await transaction.participantAccountMedia.update({ where: { accountId_type: { accountId, type } }, data });
       }
     });
     return this.getProfile(accountId);
@@ -726,8 +797,19 @@ export class ParticipantsService {
   }
 
   async getOwnMedia(accountId: string, type: AthleteMediaType, variant?: ImageVariant) {
-    const profile = await this.getAthleteProfile(accountId);
-    return this.getMedia(profile.athlete.id, type, variant);
+    this.assertAccountMediaType(type);
+    await this.getProfile(accountId);
+    const account = await this.prisma.participantAccount.findUnique({
+      where: { id: accountId }, select: { athlete: { select: { id: true } },
+        media: { where: { type }, select: { storageKey: true, mimeType: true } } },
+    });
+    if (!account) throw new NotFoundException('Không tìm thấy tài khoản SportData');
+    const media = account.athlete
+      ? await this.prisma.athleteMedia.findUnique({ where: { athleteId_type: { athleteId: account.athlete.id, type } },
+        select: { storageKey: true, mimeType: true } })
+      : account.media[0];
+    if (!media?.storageKey) throw new NotFoundException('Chưa có tệp này');
+    return { mimeType: media.mimeType, data: await this.storage.read(media.storageKey, media.mimeType.startsWith('image/') ? variant : undefined) };
   }
 
   async getAvatar(athleteId: string, variant?: ImageVariant): Promise<{ url: string } | { data: Buffer; mimeType: string }> {
@@ -2568,6 +2650,7 @@ export class ParticipantsService {
 
   private hasValidFileSignature(file: RegistrationMediaFile) {
     const bytes = file.buffer;
+    if (!Buffer.isBuffer(bytes)) return false;
     if (file.mimetype === 'image/jpeg') {
       return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
     }

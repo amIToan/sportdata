@@ -61,6 +61,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
+import { EventParticipationTickets } from './EventParticipationTickets';
 import { optimizeRegistrationMedia } from '@/lib/registration-media';
 import { InlineMatchSchedule } from './InlineMatchSchedule';
 import { MatchSchedulingWorkspace } from './scheduling/MatchSchedulingWorkspace';
@@ -69,6 +70,7 @@ import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { ticketDesign, validateTicketDesign, type TicketDesign } from '@/lib/ticket-design';
 import type { BracketDraw } from '@/components/brackets/SportdataBracket';
 import type { ParticipationTicket } from '@/lib/ticket-types';
+import { eventRoleLabel } from '@/lib/event-participation';
 import { DrawPreconfiguration } from '@/components/cms/DrawPreconfiguration';
 import { AthleteQuickViewModal } from '@/components/cms/AthleteQuickViewModal';
 import { RemoteAthleteSelect } from '@/components/cms/RemoteAthleteSelect';
@@ -1896,6 +1898,7 @@ function TicketDesignTab({ event, canEdit, onRefresh }: EventWorkspaceProps & { 
   const toast = useSportDataToast();
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [previewRole, setPreviewRole] = useState('ATHLETE');
   const savedDesign = JSON.stringify(event.ticketDesign || null);
   const [design, setDesign] = useState<TicketDesign>(() => ticketDesign(event.ticketDesign));
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(ticketDesign(event.ticketDesign)));
@@ -1907,9 +1910,10 @@ function TicketDesignTab({ event, canEdit, onRefresh }: EventWorkspaceProps & { 
   const dirty = JSON.stringify(design) !== savedSnapshot;
   const sampleTicket: ParticipationTicket = {
     ticketCode: 'SD-A6-PREVIEW', status: 'CONFIRMED',
+    ...(previewRole !== 'ATHLETE' ? { role: previewRole, roleLabel: eventRoleLabel(previewRole) } : {}),
     event: { id: event.id, name: event.name, startDate: event.startDate, endDate: event.endDate, location: event.location, ticketBackgroundUrl: event.ticketBackgroundUrl },
     sport: event.sports?.[0] || event.sport,
-    category: { name: event.categories?.[0]?.name || 'Hạng đấu / nội dung' },
+    category: { name: previewRole === 'ATHLETE' ? event.categories?.[0]?.name || 'Hạng đấu / nội dung' : eventRoleLabel(previewRole) },
     athlete: { fullName: 'NGUYỄN VĂN ĐỘNG VIÊN', country: { name: 'Việt Nam' }, federation: { name: 'Đơn vị / CLB' } },
   };
   const save = async () => {
@@ -1969,18 +1973,25 @@ function TicketDesignTab({ event, canEdit, onRefresh }: EventWorkspaceProps & { 
   };
 
   return (
-    <Card title="Xem trước vùng in A6" extra={<Tag color="blue">105 × 148 mm</Tag>}>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        {canEdit && <>
-          <Upload {...uploadProps}><Button loading={uploading} disabled={saving} icon={<UploadCloud className="h-4 w-4" />}>{event.ticketBackgroundUrl ? 'Thay ảnh nền' : 'Tải ảnh nền'}</Button></Upload>
-          {event.ticketBackgroundUrl && <Popconfirm title="Xóa ảnh nền thẻ?" onConfirm={remove} okText="Xóa" cancelText="Hủy"><Button danger disabled={uploading || saving} icon={<Trash2 className="h-4 w-4" />}>Xóa nền</Button></Popconfirm>}
-          <Button type="primary" loading={saving} disabled={uploading || !dirty} onClick={save}>Lưu bố cục thẻ</Button>
-          {dirty && <Tag color="orange">Chưa lưu bố cục</Tag>}
-        </>}
-        <span className="text-sm text-slate-500">Nền JPG/PNG tối đa 6 MB, giữ nguyên màu. Nên dùng ảnh đúng tỉ lệ A6.</span>
-      </div>
-      <TicketDesignEditor key={event.id} ticket={sampleTicket} design={design} onChange={setDesign} disabled={!canEdit || saving} />
-    </Card>
+    <div className="space-y-6">
+      <EventParticipationTickets key={event.id} eventId={event.id} />
+      <Card title="Xem trước vùng in A6" extra={<Tag color="blue">105 × 148 mm</Tag>}>
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <Select aria-label="Vai trò xem trước trên thẻ" value={previewRole} onChange={setPreviewRole} className="w-full sm:w-48" options={[
+            { value: 'ATHLETE', label: 'Vận động viên' }, { value: 'COACH', label: 'Huấn luyện viên' },
+            { value: 'REFEREE', label: 'Trọng tài' }, { value: 'TEAM_LEADER', label: 'Trưởng đoàn' },
+          ]} />
+          {canEdit && <>
+            <Upload {...uploadProps}><Button loading={uploading} disabled={saving} icon={<UploadCloud className="h-4 w-4" />}>{event.ticketBackgroundUrl ? 'Thay ảnh nền' : 'Tải ảnh nền'}</Button></Upload>
+            {event.ticketBackgroundUrl && <Popconfirm title="Xóa ảnh nền thẻ?" onConfirm={remove} okText="Xóa" cancelText="Hủy"><Button danger disabled={uploading || saving} icon={<Trash2 className="h-4 w-4" />}>Xóa nền</Button></Popconfirm>}
+            <Button type="primary" loading={saving} disabled={uploading || !dirty} onClick={save}>Lưu bố cục thẻ</Button>
+            {dirty && <Tag color="orange">Chưa lưu bố cục</Tag>}
+          </>}
+          <span className="text-sm text-slate-500">Nền JPG/PNG tối đa 6 MB, giữ nguyên màu. Nên dùng ảnh đúng tỉ lệ A6.</span>
+        </div>
+        <TicketDesignEditor key={event.id} ticket={sampleTicket} design={design} onChange={setDesign} disabled={!canEdit || saving} />
+      </Card>
+    </div>
   );
 }
 

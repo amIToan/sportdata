@@ -12,7 +12,7 @@ import { SystemSettingsService } from '../system-settings/system-settings.servic
 import { registrationMediaState } from './registration-media-state';
 
 const registrationRoles: EventParticipationRole[] = [EventParticipationRole.REFEREE, EventParticipationRole.TEAM_LEADER, EventParticipationRole.COACH];
-const federationRequiredRoles: EventParticipationRole[] = [EventParticipationRole.TEAM_LEADER, EventParticipationRole.REFEREE];
+const federationRequiredRoles: EventParticipationRole[] = [EventParticipationRole.TEAM_LEADER];
 
 const roleLabels: Record<EventParticipationRole, string> = {
   ATTENDEE: 'Người tham gia bình thường', REFEREE: 'Trọng tài', TEAM_LEADER: 'Trưởng đoàn',

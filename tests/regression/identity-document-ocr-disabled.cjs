@@ -25,6 +25,9 @@ function fixture(identityOcrEnabled) {
     },
   };
   const prisma = {
+    participantAccount: { findUnique: async () => ({ id: 'account', isActive: true,
+      athlete: { id: 'participant-athlete' } }) },
+    $queryRaw: async () => [],
     athleteMedia: {
       findUnique: async ({ where }) => media.get(JSON.stringify(where.athleteId_type)) || null,
       upsert: async ({ where, create, update }) => {
@@ -36,17 +39,23 @@ function fixture(identityOcrEnabled) {
       },
     },
   };
+  prisma.$transaction = async (operation) => operation(prisma);
   const storage = {
-    withUpload: async (file, folder, previousKey, persist) => {
+    upload: async (buffer, mimeType, folder) => {
       uploadCount += 1;
-      return persist(`${folder}/file-${uploadCount}`, { size: file.size });
+      return { key: `${folder}/file-${uploadCount}`, size: buffer.length, mimeType };
+    },
+    deleteQuietly: async () => {},
+    withUpload: async (file, folder, previousKey, persist) => {
+      const stored = await storage.upload(file.buffer, file.mimetype, folder);
+      return persist(stored.key, stored);
     },
   };
   const ocr = new IdentityOcrService(settings);
   const athletes = new AthletesService(prisma, {}, storage, settings);
   athletes.findOne = async (id) => ({ id });
   const participants = new ParticipantsService(prisma, storage, {}, ocr, {}, settings, {}, {});
-  participants.getAthleteProfile = async () => ({ athlete: { id: 'participant-athlete' } });
+  participants.getProfile = async () => ({ hasAthleteProfile: true, athlete: { id: 'participant-athlete' } });
   return { athletes, participants, ocr, media, getUploadCount: () => uploadCount, getIntegrationReads: () => integrationReads };
 }
 

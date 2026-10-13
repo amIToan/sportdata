@@ -21,7 +21,7 @@ function fixture({ matches = [], duplicate = false } = {}) {
     participantAccount: {
       findUnique: async ({ where }) => duplicate && where.documentHash ? { id: 'existing-account' } : null,
       create: async ({ data }) => {
-        stored = { id: 'new-account', createdAt: new Date(), athlete: null, isActive: true, ...data };
+        stored = { id: 'new-account', createdAt: new Date(), athlete: null, media: [], isActive: true, ...data };
         return { id: stored.id, email: data.email, displayName: data.displayName };
       },
     },
@@ -61,7 +61,7 @@ async function main() {
   await fresh.service.updateProfile('new-account', { displayName: 'Updated Name' });
   assert.equal(fresh.stored().displayName, 'Updated Name');
   assert.equal(fresh.stored().athlete, null);
-  await assert.rejects(fresh.service.getOwnMedia('new-account', 'AVATAR'), (error) => error.getStatus() === 400);
+  await assert.rejects(fresh.service.getOwnMedia('new-account', 'AVATAR'), (error) => error.getStatus() === 404);
 
   const athlete = {
     id: 'old-athlete', fullName: input.displayName, birthDate: new Date(input.birthDate),

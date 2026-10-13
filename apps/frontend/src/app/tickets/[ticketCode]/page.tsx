@@ -3,12 +3,14 @@
 import { ToastNotice } from '@/components/ToastNotice';
 
 import Link from 'next/link';
+import { useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
-import { Button, Card, Descriptions, Result, Skeleton, Statistic, Tag } from 'antd';
-import { ArrowLeft, CheckCircle2, FileCheck2, Medal, Printer, ShieldCheck, Swords, Trophy } from 'lucide-react';
+import { Button, Card, Descriptions, Result, Skeleton, Space, Statistic, Tag } from 'antd';
+import { ArrowLeft, CheckCircle2, Download, FileCheck2, Medal, ShieldCheck, Swords, Trophy } from 'lucide-react';
 import { EventParticipationCard } from '@/components/EventParticipationCard';
 import { PaymentCheckout } from '@/components/PaymentCheckout';
+import { TicketPrintButton } from '@/components/TicketPrintButton';
 import { fetcher } from '@/lib/api';
 import type { ParticipationTicket, TicketStatistics } from '@/lib/ticket-types';
 
@@ -41,13 +43,21 @@ function medalTotal(statistics?: TicketStatistics) {
 }
 
 export default function TicketVerificationPage() {
+  const stageRef = useRef<HTMLDivElement>(null);
   const params = useParams<{ ticketCode: string }>();
   const ticketCode = decodeURIComponent(params.ticketCode || '').toUpperCase();
+  const ticketUrl = ticketCode ? `/participant-auth/tickets/${encodeURIComponent(ticketCode)}` : null;
   const { data: ticket, error, isLoading, mutate } = useSWR<ParticipationTicket>(
-    ticketCode ? `/participant-auth/tickets/${encodeURIComponent(ticketCode)}` : null,
+    ticketUrl,
     fetcher,
     { refreshInterval: 30_000 },
   );
+  const revalidateBeforePrint = useCallback(async () => {
+    if (!ticketUrl) return false;
+    const fresh = await fetcher<ParticipationTicket>(ticketUrl);
+    await mutate(fresh, { revalidate: false });
+    return Boolean(fresh.isValid);
+  }, [mutate, ticketUrl]);
 
   if (isLoading) {
     return (
@@ -84,14 +94,17 @@ export default function TicketVerificationPage() {
             <Button icon={<ArrowLeft className="h-4 w-4" />}>Sự kiện</Button>
           </Link>
           {ticket.isValid ? (
-            <Button
-              type="primary"
-              href={`/api/participant-auth/tickets/${encodeURIComponent(ticket.ticketCode)}/pdf`}
-              target="_blank"
-              icon={<Printer className="h-4 w-4" />}
-            >
-              Tải thẻ PDF
-            </Button>
+            <Space wrap>
+              <TicketPrintButton key={ticket.ticketCode} stageRef={stageRef} onBeforePrint={revalidateBeforePrint} />
+              <Button
+                href={`/api/participant-auth/tickets/${encodeURIComponent(ticket.ticketCode)}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                icon={<Download className="h-4 w-4" />}
+              >
+                Tải thẻ PDF
+              </Button>
+            </Space>
           ) : null}
         </div>
 
@@ -112,7 +125,7 @@ export default function TicketVerificationPage() {
         {!ticket.role && <PaymentCheckout ticket={ticket} onPaid={() => mutate()} />}
 
         {ticket.isValid ? (
-          <div className="ticket-pass-stage">
+          <div className="ticket-pass-stage" ref={stageRef}>
             <EventParticipationCard ticket={ticket} />
           </div>
         ) : (
