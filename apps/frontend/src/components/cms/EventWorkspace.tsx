@@ -57,7 +57,6 @@ import {
   Trash2,
   UploadCloud,
   UserRound,
-  XCircle,
 } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
 import { EventParticipationTickets } from './EventParticipationTickets';
@@ -72,6 +71,7 @@ import { eventRoleLabel } from '@/lib/event-participation';
 import { DrawPreconfiguration } from '@/components/cms/DrawPreconfiguration';
 import { AthleteQuickViewModal } from '@/components/cms/AthleteQuickViewModal';
 import { RemoteAthleteSelect } from '@/components/cms/RemoteAthleteSelect';
+import { ExistingAthleteRegistrationPicker, type SelectedRegistrationAthlete, type BatchRegistrationResult } from '@/components/cms/ExistingAthleteRegistrationPicker';
 import { withCmsReturnTo } from '@/lib/cms-navigation';
 import { MATCH_STATUS_META } from '@/lib/vi-labels';
 import { registrationDisciplineKey, registrationDisciplineLabel, type RegistrationCategory } from '@/lib/registration-table';
@@ -628,6 +628,8 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
   const [registrationPage, setRegistrationPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [createMode, setCreateMode] = useState<'existing' | 'new'>('existing');
+  const [batchAthletes, setBatchAthletes] = useState<SelectedRegistrationAthlete[]>([]);
+  const [batchResults, setBatchResults] = useState<BatchRegistrationResult[]>([]);
   const [eligibility, setEligibility] = useState<{ eligible: boolean; reasons: string[]; warnings: string[] }>();
   const [eligibilityChecking, setEligibilityChecking] = useState(false);
   const [registrationSaving, setRegistrationSaving] = useState(false);
@@ -642,6 +644,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
   const [categorySaving, setCategorySaving] = useState(false);
   const selectedCountryId = Form.useWatch(['athlete', 'countryId'], registrationForm);
   const selectedPaymentStatus = Form.useWatch('paymentStatus', registrationForm) || 'PENDING';
+  const selectedRegistrationCategoryId = Form.useWatch('categoryId', registrationForm);
   const selectedIdentityType = Form.useWatch(['athlete', 'identityType'], registrationForm) || 'CCCD';
   useEffect(() => { stagedMedia.current.clear(); }, [createMode, createOpen]);
   const availableFederations = federations.filter((item) => !selectedCountryId || item.countryId === selectedCountryId);
@@ -783,9 +786,9 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
     const values = await registrationForm.validateFields();
     const fileEntries: Array<[string, File | undefined]> = [
       ['AVATAR', avatarFile],
-      ['CCCD_FRONT', createMode !== 'new' || values.athlete?.identityType !== 'PASSPORT' ? identityFiles.CCCD_FRONT : undefined],
-      ['CCCD_BACK', createMode !== 'new' || values.athlete?.identityType !== 'PASSPORT' ? identityFiles.CCCD_BACK : undefined],
-      ['PASSPORT', createMode !== 'new' || values.athlete?.identityType === 'PASSPORT' ? identityFiles.PASSPORT : undefined],
+      ['CCCD_FRONT', values.athlete?.identityType !== 'PASSPORT' ? identityFiles.CCCD_FRONT : undefined],
+      ['CCCD_BACK', values.athlete?.identityType !== 'PASSPORT' ? identityFiles.CCCD_BACK : undefined],
+      ['PASSPORT', values.athlete?.identityType === 'PASSPORT' ? identityFiles.PASSPORT : undefined],
     ];
     const fieldNames: Record<string, string> = { AVATAR: 'avatar', CCCD_FRONT: 'cccdFront', CCCD_BACK: 'cccdBack', PASSPORT: 'passport' };
     const uploadEntries = await Promise.all(fileEntries.map(async ([type, file]) => {
@@ -804,16 +807,6 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
       return [fieldNames[type], { id: reference.id, token: reference.token }] as const;
     }));
     const mediaUploads = Object.fromEntries(uploadEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)));
-    if (createMode === 'existing') {
-      return {
-        eventId,
-        categoryId: values.categoryId,
-        athleteId: values.athleteId,
-        mediaUploads,
-        paymentStatus: event.paymentMode === 'FREE' ? undefined : values.paymentStatus || 'PENDING',
-        paymentNote: values.paymentNote,
-      };
-    }
     const athlete = values.athlete;
     return {
       eventId,
@@ -832,9 +825,57 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
     };
   };
 
+  const processBatchRegistration = async (create: boolean) => {
+    if (!batchAthletes.length) {
+      toast.error('Vui lòng chọn ít nhất một vận động viên.');
+      return;
+    }
+    const values = await registrationForm.validateFields();
+    const results: BatchRegistrationResult[] = batchResults.filter((result) => result.status === 'success');
+    const remaining: SelectedRegistrationAthlete[] = [];
+    setBatchResults([...results]);
+    let added = 0;
+    for (const athlete of batchAthletes) {
+      try {
+        const categoryId = athlete.categoryId || values.categoryId;
+        if (!categoryId) throw new Error('Vui lòng chọn hạng đấu cho VĐV này.');
+        const payload = {
+          eventId,
+          categoryId,
+          athleteId: athlete.id,
+          paymentStatus: event.paymentMode === 'FREE' ? undefined : values.paymentStatus || 'PENDING',
+          paymentNote: values.paymentNote,
+        };
+        const { data: check } = await api.post('/participant-auth/admin/registrations/eligibility', payload);
+        if (!check.eligible) throw new Error(check.reasons.join('; ') || 'VĐV chưa đủ điều kiện tham gia.');
+        if (create) {
+          await api.post('/participant-auth/admin/registrations', payload);
+          added += 1;
+        }
+        results.push({ athleteId: athlete.id, fullName: athlete.fullName, status: create ? 'success' : 'eligible', message: check.warnings?.join('; ') || (create ? 'Đã xác nhận đăng ký.' : 'Hồ sơ phù hợp với hạng đấu.') });
+      } catch (error: any) {
+        remaining.push(athlete);
+        const message = error.response?.data?.message || error.message || 'Không thể thêm VĐV. Vui lòng kiểm tra danh sách đăng ký trước khi thử lại.';
+        results.push({ athleteId: athlete.id, fullName: athlete.fullName, status: 'error', message: Array.isArray(message) ? message.join('; ') : message });
+      }
+      setBatchResults([...results]);
+    }
+    if (create) {
+      setBatchAthletes(remaining);
+      if (added) {
+        toast.success(`Đã thêm ${added} VĐV${remaining.length ? `; ${remaining.length} VĐV cần xử lý lại` : ''}.`);
+        await refreshRegistrationData();
+      }
+    }
+  };
+
   const checkEligibility = async () => {
     setEligibilityChecking(true);
     try {
+      if (createMode === 'existing') {
+        await processBatchRegistration(false);
+        return;
+      }
       const payload = await registrationPayload();
       const { data } = await api.post('/participant-auth/admin/registrations/eligibility', payload);
       setEligibility(data);
@@ -850,6 +891,10 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
   const createRegistration = async () => {
     setRegistrationSaving(true);
     try {
+      if (createMode === 'existing') {
+        await processBatchRegistration(true);
+        return;
+      }
       if (createMode === 'new' && (selectedIdentityType === 'PASSPORT' ? !identityFiles.PASSPORT : !identityFiles.CCCD_FRONT || !identityFiles.CCCD_BACK)) {
         toast.error('VĐV mới cần tải đủ CCCD hai mặt hoặc hộ chiếu theo loại giấy tờ đã chọn.');
         return;
@@ -865,7 +910,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
       const { data: registration } = await api.post('/participant-auth/admin/registrations', payload);
       await refreshRegistrationData();
       stagedMedia.current.clear();
-      toast.success(createMode === 'new' ? 'Đã tạo VĐV, lưu giấy tờ và xác nhận đăng ký.' : 'Đã thêm VĐV và xác nhận đăng ký.');
+      toast.success('Đã tạo VĐV, lưu giấy tờ và xác nhận đăng ký.');
       setCreatedRegistration(registration);
       setCreateOpen(false);
       setEligibility(undefined);
@@ -1048,7 +1093,6 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                       <Button size="small" icon={<Eye className="h-3 w-3" />} onClick={() => viewDocument(item.athlete.id, media.type)}>{media.type === 'CCCD_FRONT' ? 'CCCD trước' : media.type === 'CCCD_BACK' ? 'CCCD sau' : 'Hộ chiếu'}</Button>
                       <Tag color={media.verificationStatus === 'VERIFIED' ? 'success' : media.verificationStatus === 'REJECTED' ? 'error' : 'processing'}>{media.verificationStatus === 'VERIFIED' ? 'Đã xác thực' : media.verificationStatus === 'REJECTED' ? 'Từ chối' : 'Chờ xác thực'}</Tag>
                       {canOperate && media.verificationStatus !== 'VERIFIED' && <Button size="small" type="text" title="Xác thực" icon={<CheckCircle2 className="h-4 w-4 text-emerald-500" />} onClick={() => verifyDocument(item.athlete.id, media.type, 'VERIFIED')} />}
-                      {canOperate && media.verificationStatus !== 'REJECTED' && <Button size="small" type="text" title="Từ chối" icon={<XCircle className="h-4 w-4 text-red-500" />} onClick={() => verifyDocument(item.athlete.id, media.type, 'REJECTED')} />}
                     </div>
                   ))}
                 </div>
@@ -1145,7 +1189,6 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                           { value: 'SUBMITTED', label: 'Chờ duyệt' },
                           { value: 'CONFIRMED', label: 'Đã xác nhận', disabled: !identityVerified && item.status !== 'CONFIRMED' },
                           { value: 'REJECTED', label: 'Từ chối' },
-                          { value: 'CANCELLED', label: 'Đã hủy' },
                         ]}
                       />
                     ) : <Tag color={registrationStatusLabels[item.status]?.color}>{registrationStatusLabels[item.status]?.label || item.status}</Tag>}
@@ -1246,19 +1289,23 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
       <Modal
         open={createOpen}
         title="Thêm vận động viên đăng ký thi đấu"
-        width={760}
+        width={createMode === 'existing' ? 1100 : 760}
+        styles={createMode === 'existing' ? { body: { maxHeight: 'calc(100dvh - 220px)', overflowY: 'auto' } } : undefined}
         centered
         destroyOnHidden
-        okText="Kiểm tra và thêm"
+        okText={createMode === 'existing' ? `Thêm ${batchAthletes.length} VĐV` : 'Kiểm tra và thêm'}
         cancelText="Hủy"
         confirmLoading={registrationSaving}
+        okButtonProps={{ disabled: eligibilityChecking || (createMode === 'existing' && !batchAthletes.length) }}
         onOk={() => void createRegistration()}
         onCancel={() => {
-          if (registrationSaving) return;
+          if (registrationSaving || eligibilityChecking) return;
           setCreateOpen(false);
           setEligibility(undefined);
           setAvatarFile(undefined);
           setIdentityFiles({});
+          setBatchAthletes([]);
+          setBatchResults([]);
           registrationForm.resetFields();
         }}
       >
@@ -1266,24 +1313,31 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
           <Segmented
             block
             value={createMode}
+            disabled={registrationSaving || eligibilityChecking}
             options={[{ value: 'existing', label: 'Chọn VĐV đang có' }, { value: 'new', label: 'Thêm VĐV mới' }]}
             onChange={(value) => {
               setCreateMode(value as 'existing' | 'new');
               setEligibility(undefined);
               setAvatarFile(undefined);
               setIdentityFiles({});
-              registrationForm.resetFields(['athleteId', 'athlete']);
+              setBatchAthletes([]);
+              setBatchResults([]);
+              registrationForm.resetFields(['athlete']);
             }}
           />
         </div>
         <Form
           form={registrationForm}
           layout="vertical"
+          disabled={registrationSaving || eligibilityChecking}
           initialValues={{ athlete: { gender: 'MALE', identityType: 'CCCD' }, paymentStatus: 'PENDING' }}
-          onValuesChange={() => setEligibility(undefined)}
+          onValuesChange={() => {
+            setEligibility(undefined);
+            setBatchResults((current) => current.filter((result) => result.status === 'success'));
+          }}
         >
           <ToastNotice className="!mb-4" type="info" showIcon message="Hồ sơ do quản trị viên tạo được xác nhận ngay. Thanh toán được theo dõi riêng." />
-          <Form.Item name="categoryId" label="Hạng đấu" rules={[{ required: true, message: 'Vui lòng chọn hạng đấu' }]}>
+          <Form.Item name="categoryId" label={createMode === 'existing' ? 'Hạng đấu chung (có thể chỉnh riêng từng VĐV)' : 'Hạng đấu'} rules={[{ required: createMode === 'new', message: 'Vui lòng chọn hạng đấu' }]}>
             <Select
               showSearch
               optionFilterProp="label"
@@ -1295,9 +1349,18 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
             />
           </Form.Item>
           {createMode === 'existing' ? (
-            <Form.Item name="athleteId" label="Vận động viên" rules={[{ required: true, message: 'Vui lòng chọn vận động viên' }]}>
-              <RemoteAthleteSelect allAthletes placeholder="Tìm theo họ tên VĐV" />
-            </Form.Item>
+            <ExistingAthleteRegistrationPicker
+              federations={federations}
+              categories={event.categories || []}
+              defaultCategoryId={selectedRegistrationCategoryId}
+              selected={batchAthletes}
+              results={batchResults}
+              disabled={registrationSaving || eligibilityChecking}
+              onChange={(selected) => {
+                setBatchAthletes(selected);
+                setBatchResults((current) => current.filter((result) => result.status === 'success'));
+              }}
+            />
           ) : (
             <div className="rounded-xl border border-slate-300/15 p-4">
               <Row gutter={[16, 0]}>
@@ -1316,32 +1379,36 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
               </Row>
             </div>
           )}
-          <AthleteAvatarPicker file={avatarFile} onChange={setAvatarFile} onError={(message) => toast.error(message)} />
-          <div className="mt-4 rounded-xl border border-slate-300/15 p-4">
-            <div className="mb-3">
-              <strong>Giấy tờ định danh</strong>
-              <div className="mt-1 text-xs text-slate-500">
-                {createMode === 'new' ? 'Tải lên ảnh đại diện và giấy tờ theo loại đã chọn trước khi đăng ký.' : 'Hồ sơ phải có ảnh đại diện và CCCD hai mặt hoặc hộ chiếu. Có thể bổ sung tệp còn thiếu tại đây.'}
+          {createMode === 'new' && (
+            <>
+              <AthleteAvatarPicker file={avatarFile} onChange={setAvatarFile} onError={(message) => toast.error(message)} />
+              <div className="mt-4 rounded-xl border border-slate-300/15 p-4">
+                <div className="mb-3">
+                  <strong>Giấy tờ định danh</strong>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Tải lên ảnh đại diện và giấy tờ theo loại đã chọn trước khi đăng ký.
+                  </div>
+                </div>
+                <Row gutter={[12, 12]}>
+                  {([
+                    ['CCCD_FRONT', 'CCCD mặt trước'],
+                    ['CCCD_BACK', 'CCCD mặt sau'],
+                    ['PASSPORT', 'Hộ chiếu'],
+                  ] as Array<[RegistrationIdentityDocument, string]>).filter(([type]) => selectedIdentityType === 'PASSPORT' ? type === 'PASSPORT' : type !== 'PASSPORT').map(([type, label]) => (
+                    <Col xs={24} md={8} key={type}>
+                      <IdentityDocumentPicker
+                        file={identityFiles[type]}
+                        label={label}
+                        required
+                        onError={(message) => toast.error(message)}
+                        onChange={(file) => setIdentityFiles((current) => ({ ...current, [type]: file }))}
+                      />
+                    </Col>
+                  ))}
+                </Row>
               </div>
-            </div>
-            <Row gutter={[12, 12]}>
-              {([
-                ['CCCD_FRONT', 'CCCD mặt trước', createMode === 'new'],
-                ['CCCD_BACK', 'CCCD mặt sau', createMode === 'new'],
-                ['PASSPORT', 'Hộ chiếu', createMode === 'new'],
-              ] as Array<[RegistrationIdentityDocument, string, boolean]>).filter(([type]) => createMode !== 'new' || (selectedIdentityType === 'PASSPORT' ? type === 'PASSPORT' : type !== 'PASSPORT')).map(([type, label, required]) => (
-                <Col xs={24} md={8} key={type}>
-                  <IdentityDocumentPicker
-                    file={identityFiles[type]}
-                    label={label}
-                    required={required}
-                    onError={(message) => toast.error(message)}
-                    onChange={(file) => setIdentityFiles((current) => ({ ...current, [type]: file }))}
-                  />
-                </Col>
-              ))}
-            </Row>
-          </div>
+            </>
+          )}
           {event.paymentMode !== 'FREE' && event.registrationFee > 0 && (
             <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1360,6 +1427,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                   ]}
                 />
               </Form.Item>
+              {createMode === 'existing' && <p className="mt-2 text-xs text-slate-500">Trạng thái và ghi chú thanh toán áp dụng cho từng VĐV được chọn. Lệ phí được tính riêng cho mỗi lượt đăng ký.</p>}
               {selectedPaymentStatus === 'PAID' && (
                 <Form.Item className="!mb-0 !mt-3" name="paymentNote" label="Ghi chú thu phí" rules={[{ required: true, message: 'Vui lòng nhập hình thức hoặc nội dung thu phí' }]}>
                   <Input placeholder="Ví dụ: Đã thu tiền mặt tại quầy / đã nhận chuyển khoản" />
@@ -1370,7 +1438,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
           )}
         </Form>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button loading={eligibilityChecking} onClick={() => void checkEligibility()}>Kiểm tra điều kiện</Button>
+          <Button loading={eligibilityChecking} disabled={registrationSaving || (createMode === 'existing' && !batchAthletes.length)} onClick={() => void checkEligibility()}>Kiểm tra điều kiện</Button>
           <span className="text-xs text-slate-500">Kiểm tra theo giới tính, tuổi, cân nặng, đơn vị, quốc gia và đăng ký trùng.</span>
         </div>
         {eligibility && (
