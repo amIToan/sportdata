@@ -679,18 +679,28 @@ export class EventsService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
-    const previous = await this.prisma.event.findUnique({
-      where: { id },
-      select: { bannerStorageKey: true, logoStorageKey: true, ticketBackgroundStorageKey: true },
-    });
+    const previous = await this.prisma.$transaction(async (transaction) => {
+      // Use the same locks as schedule editing so a new plan cannot race deletion.
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
+      const exists = await transaction.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Event" WHERE "id" = ${id} FOR UPDATE`;
+      if (!exists.length) throw new NotFoundException('Không tìm thấy sự kiện.');
+      const images = await transaction.event.findUniqueOrThrow({
+        where: { id },
+        select: { bannerStorageKey: true, logoStorageKey: true, ticketBackgroundStorageKey: true },
+      });
 
-    await this.prisma.$transaction(async (transaction) => {
+      // Only whole-event deletion may remove applied schedules and their matches.
+      await transaction.$executeRaw`SELECT set_config('sportdata.event_delete', ${id}, true)`;
+      await transaction.matchScheduleItem.deleteMany({ where: { revision: { plan: { eventId: id } } } });
       await transaction.statistic.deleteMany({ where: { eventId: id } });
       await transaction.match.deleteMany({ where: { eventId: id } });
+      await transaction.matchScheduleRevision.deleteMany({ where: { plan: { eventId: id } } });
+      await transaction.matchScheduleCategory.deleteMany({ where: { eventId: id } });
+      await transaction.matchSchedulePlan.deleteMany({ where: { eventId: id } });
       await transaction.draw.deleteMany({ where: { eventId: id } });
       await transaction.event.delete({ where: { id } });
-    });
+      return images;
+    }, { timeout: 60000 });
     await Promise.all(Object.values(previous).map((key) => this.storage.deleteQuietly(key)));
     return { id };
   }

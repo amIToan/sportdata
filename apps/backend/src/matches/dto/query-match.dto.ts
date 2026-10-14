@@ -64,6 +64,16 @@ export class QueryMatchDto {
   @IsOptional()
   categoryId?: string;
 
+  @ApiPropertyOptional({ description: 'Các ID hạng đấu, phân cách bằng dấu phẩy' })
+  @IsString()
+  @IsOptional()
+  categoryIds?: string;
+
+  @ApiPropertyOptional({ description: 'Sắp xếp theo thứ tự thi đấu trong sự kiện', enum: ['asc', 'desc'] })
+  @IsIn(['asc', 'desc'])
+  @IsOptional()
+  scheduleOrder?: 'asc' | 'desc';
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()

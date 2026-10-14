@@ -205,7 +205,7 @@ export class MatchesService {
     })) throw new ConflictException('VĐV chưa đủ thời gian nghỉ sau trận vừa kết thúc');
   }
 
-  async findAll(query: QueryMatchDto, includeUnpublishedResults = false) {
+  async findAll(query: QueryMatchDto, includeUnpublishedResults = false, allRows = false) {
     const {
       search,
       athleteName,
@@ -230,9 +230,14 @@ export class MatchesService {
 
     if (eventId) where.eventId = eventId;
     if (categoryId) where.categoryId = categoryId;
+    if (query.categoryIds) {
+      const categoryIds = query.categoryIds.split(',').map((id) => id.trim()).filter(Boolean);
+      if (categoryIds.length) where.categoryId = { in: categoryIds };
+    }
     if (sportId) where.category = { sportId };
     if (fopId) where.fopId = fopId;
     const additionalFilters: Prisma.MatchWhereInput[] = [];
+    let byeFilter: Prisma.MatchWhereInput | undefined;
     if (query.federationId) {
       additionalFilters.push({ OR: [
         { athlete1: { federationId: query.federationId } },
@@ -241,7 +246,7 @@ export class MatchesService {
       ] });
     }
     if (query.hideByes === 'true') {
-      additionalFilters.push({
+      byeFilter = {
         OR: [
           { winMethod: null },
           { NOT: {
@@ -256,7 +261,8 @@ export class MatchesService {
             ],
           } },
         ],
-      });
+      };
+      additionalFilters.push(byeFilter);
     }
     const name = athleteName?.trim();
     const opponent = opponentName?.trim();
@@ -322,6 +328,43 @@ export class MatchesService {
       { id: 'asc' },
     ];
 
+    if (query.scheduleOrder) {
+      if (!eventId) throw new BadRequestException('Thứ tự thi đấu cần được lọc theo sự kiện.');
+      // Rank the selected categories before applying column filters or pagination.
+      const scope: Prisma.MatchWhereInput = {
+        eventId, categoryId: where.categoryId, category: where.category,
+        ...(byeFilter ? { AND: [byeFilter] } : {}),
+      };
+      const [scheduled, filtered] = await Promise.all([
+        this.prisma.match.findMany({ where: scope, select: { id: true, startTime: true }, orderBy: [
+          { startTime: { sort: 'asc', nulls: 'last' } }, { matchDate: 'asc' }, { matchNumber: 'asc' }, { id: 'asc' },
+        ] }),
+        this.prisma.match.findMany({ where, select: { id: true } }),
+      ]);
+      const ranks = new Map(scheduled.filter((match) => match.startTime).map((match, index) => [match.id, index + 1]));
+      const positions = new Map(scheduled.map((match, index) => [match.id, index]));
+      const ordered = filtered.sort((left, right) => {
+        const leftRank = ranks.get(left.id);
+        const rightRank = ranks.get(right.id);
+        if (leftRank === undefined || rightRank === undefined) {
+          if (leftRank !== undefined) return -1;
+          if (rightRank !== undefined) return 1;
+          return (positions.get(left.id) ?? 0) - (positions.get(right.id) ?? 0);
+        }
+        return query.scheduleOrder === 'desc' ? rightRank - leftRank : leftRank - rightRank;
+      });
+      const ids = (allRows ? ordered : ordered.slice((page - 1) * limit, page * limit)).map((match) => match.id);
+      const rows = await this.prisma.match.findMany({ where: { id: { in: ids } }, include: MATCH_INCLUDE });
+      const byId = new Map(rows.map((match) => [match.id, match]));
+      return {
+        items: ids.map((id) => {
+          const match = byId.get(id);
+          return match ? { ...(includeUnpublishedResults ? match : this.hideUnpublishedResult(match)), scheduleOrder: ranks.get(id) ?? null } : null;
+        }).filter(Boolean),
+        meta: { total: ordered.length, page, limit, totalPages: Math.ceil(ordered.length / limit) },
+      };
+    }
+
     if (pagination === 'cursor') {
       const rows = await this.prisma.match.findMany({
         where,
@@ -351,8 +394,7 @@ export class MatchesService {
       this.prisma.match.findMany({
         where,
         include: MATCH_INCLUDE,
-        skip,
-        take: limit,
+        ...(allRows ? {} : { skip, take: limit }),
         orderBy,
       }),
       this.prisma.match.count({ where }),

@@ -52,7 +52,9 @@ export const stageLabel = (key: string, round?: number) => key.startsWith('REP_'
   GRAND_FINAL: 'Chung kết toàn giải', R64: 'Vòng 64 người · 1/32', R32: 'Vòng 32 người · 1/16', R16: 'Vòng 16 người · 1/8' }[key]
   || (key.startsWith('POOL_') ? `Vòng bảng ${key.slice(5)}` : key.startsWith('HEAT_') ? `Lượt vòng ${key.slice(5)}`
     : key));
-export const groupLabel = (category: any) => [category.discipline === 'NEWAZA' ? category.uniform === 'NO_GI' ? 'No-GI' : 'GI'
-  : ({ FIGHTING: 'Fighting', DUO: 'Duo', SHOW: 'Show' }[category.discipline] || category.discipline || 'Nội dung chưa phân loại'),
+export const groupLabel = (category: any) => [
+  category.sport?.name,
+  [({ NEWAZA: 'Newaza', FIGHTING: 'Fighting', CONTACT: 'Contact', FULL_CONTACT: 'Full Contact', DUO: 'Duo', SHOW: 'Show' }[category.discipline] || category.discipline),
+    { GI: 'Gi', NO_GI: 'No-Gi' }[category.uniform]].filter(Boolean).join(' '),
   { MALE: 'Nam', FEMALE: 'Nữ', MIXED: 'Hỗn hợp' }[category.gender],
-  category.minAge != null || category.maxAge != null ? `${category.minAge ?? '…'}–${category.maxAge ?? '…'} tuổi` : '', category.beltLevel].filter(Boolean).join(' · ');
+].filter(Boolean).join(' · ') || 'Nội dung chưa phân loại';

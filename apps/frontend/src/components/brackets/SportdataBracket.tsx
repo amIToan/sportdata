@@ -2,11 +2,11 @@
 
 import { imageUrl } from '@/lib/image-url';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useBracketViewport } from './useBracketViewport';
 import Link from 'next/link';
 import { Avatar, Button, Card, Tag, Tooltip } from 'antd';
-import { ChevronDown, ChevronUp, Maximize2, Minus, Plus, RotateCcw, UserRound } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Maximize2, Minus, Plus, RotateCcw, UserRound } from 'lucide-react';
 import { cn, formatDate, formatTime } from '@/lib/utils';
 
 export interface BracketCountry {
@@ -62,6 +62,7 @@ type SportdataBracketProps = {
   sourceMatches?: BracketMatch[];
   readOnly?: boolean;
   matchHref?: (match: BracketMatch, athlete?: BracketAthlete | null) => string | undefined;
+  onExportPdf?: (board: HTMLElement, heading: HTMLElement) => Promise<void>;
 };
 
 const BRACKET_NODE_WIDTH = 390;
@@ -70,8 +71,11 @@ const BRACKET_SLOT_PITCH = 116;
 const BRACKET_COLUMN_STEP = 470;
 const BRACKET_HEADER_HEIGHT = 64;
 
-export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly = false, matchHref }: SportdataBracketProps) {
+export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly = false, matchHref, onExportPdf }: SportdataBracketProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
   const matches = draw.matches.map((match) => ({ ...match,
     athlete1: match.athlete1 || (match.team1 ? { id: match.team1.id, isTeam: true, fullName: match.team1.members?.map((member) => member.athlete.fullName).join(' / ') || match.team1.name, country: match.team1.country } : null),
     athlete2: match.athlete2 || (match.team2 ? { id: match.team2.id, isTeam: true, fullName: match.team2.members?.map((member) => member.athlete.fullName).join(' / ') || match.team2.name, country: match.team2.country } : null),
@@ -146,7 +150,7 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
   return (
     <Card className="category-bracket-card sportdata-draw" styles={{ body: { padding: 0 } }}>
       <div className="sportdata-draw-title">
-        <div className="sportdata-draw-heading">
+        <div className="sportdata-draw-heading" ref={headingRef}>
           <span>{draw.name}</span>
           <Tag bordered={false}>{drawTypeLabel(draw.type)}</Tag>
         </div>
@@ -196,6 +200,20 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
               type="text"
             />
           </Tooltip>
+          {onExportPdf && <Button
+            aria-label={`Xuất PDF ${draw.name}`}
+            className="sportdata-draw-control"
+            icon={<Download className="h-4 w-4" />}
+            loading={exporting}
+            disabled={collapsed}
+            onClick={async () => {
+              if (exporting || !boardRef.current || !headingRef.current) return;
+              setExporting(true);
+              try { await onExportPdf(boardRef.current, headingRef.current); } finally { setExporting(false); }
+            }}
+            size="small"
+            type="text"
+          >Xuất PDF</Button>}
           <Button
             aria-label={collapsed ? 'Mở cây thi đấu' : 'Thu gọn cây thi đấu'}
             aria-expanded={!collapsed}
@@ -216,6 +234,7 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
             <div className="sportdata-bracket-stage" style={{ width: boardWidth * scale, height: boardHeight * scale }}>
               <div
                 className="sportdata-bracket-board"
+                ref={boardRef}
                 style={{ width: boardWidth, height: boardHeight, transform: `scale(${scale})` }}
               >
                 {roundNumbers.map((round, index) => (
