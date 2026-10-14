@@ -13,6 +13,10 @@ import { EnterResultDto } from './dto/result-workflow.dto';
 const RESULT_SELECT = {
   id: true,
   eventId: true,
+  categoryId: true,
+  drawId: true,
+  round: true,
+  matchNumber: true,
   athlete1Id: true,
   athlete2Id: true,
   team1Id: true,
@@ -31,6 +35,7 @@ const RESULT_SELECT = {
   resultVersion: true,
   status: true,
   resultEnteredAt: true,
+  resultEnteredBy: true,
   refereeConfirmedAt: true,
   approvedAt: true,
   resultPublishedAt: true,
@@ -173,6 +178,7 @@ export class ResultsService {
   private async enterInTransaction(transaction: Prisma.TransactionClient, matchId: string, userId: string, dto: EnterResultDto) {
     const before = await this.loadMatch(transaction, matchId);
     if (before.status === MatchStatus.RUNNING && (before.resultData as any)?.scoreboard) throw new BadRequestException('Xác nhận trận đang thi đấu qua bảng điểm');
+    await this.matches.assertRepechageReady(transaction, before as any);
     this.assertExpectedVersion(before.resultVersion, dto.expectedVersion);
     if (before.resultStatus === ResultStatus.LOCKED) throw new BadRequestException('Kết quả đã khóa và không thể chỉnh sửa');
     if (before.resultStatus === ResultStatus.APPROVED || before.resultStatus === ResultStatus.PUBLISHED) {

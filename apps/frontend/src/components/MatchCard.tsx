@@ -103,8 +103,8 @@ export function MatchCard({
           </div>
 
           <div className="match-card-meta">
-            {matchNumber != null && <span className="match-number-chip">#{matchNumber}</span>}
-            {fop && <span className="fop-chip" title={fop}>{fop}</span>}
+            {matchNumber != null && <span className="match-number-chip">Trận #{matchNumber}</span>}
+            <span className="fop-chip" title={fop || 'Chưa xếp thảm'}>Thảm: {fop || 'Chưa xếp'}</span>
           </div>
         </div>
 

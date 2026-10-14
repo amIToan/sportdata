@@ -95,8 +95,8 @@ export class MatchesController {
     description: 'Returns match counts by date and the first live match without loading full match records.',
   })
   @ApiParam({ name: 'eventId', type: String, description: 'Event ID' })
-  findScheduleSummary(@Param('eventId') eventId: string) {
-    return this.matchesService.findScheduleSummary(eventId);
+  findScheduleSummary(@Param('eventId') eventId: string, @Query() query: QueryMatchDto) {
+    return this.matchesService.findScheduleSummary(eventId, query.hideByes === 'true');
   }
 
   @Get('event/:eventId/category/:categoryId/draws')

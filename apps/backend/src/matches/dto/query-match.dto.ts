@@ -23,6 +23,11 @@ export class QueryMatchDto {
   @IsOptional()
   hideByes?: 'true' | 'false';
 
+  @ApiPropertyOptional({ description: 'Sort by match number before pagination', enum: ['asc', 'desc'] })
+  @IsIn(['asc', 'desc'])
+  @IsOptional()
+  matchNumberOrder?: 'asc' | 'desc';
+
   @ApiPropertyOptional({ description: 'Tên VĐV, ở bất kỳ bên nào của trận' })
   @IsString()
   @IsOptional()

@@ -224,7 +224,7 @@ try {
   await db.$executeRawUnsafe('DROP TRIGGER reject_schedule_test ON "MatchScheduleItem"');
   console.log('PASS: injected write failure rolls back the entire chain and ownership.');
 
-  for (const type of ['REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
+  for (const type of ['REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
     const shaped = await fixture(size, 'FIGHTING', type);
     const sp = await draft(shaped); const sv = await preview(shaped, sp);
     assert.equal(sv.canApply, true, `${type}/${size}: ${JSON.stringify(sv.violations)}`);
@@ -232,6 +232,11 @@ try {
     const positions = new Map(sv.assignments.map((item, index) => [item.matchId, index]));
     for (const match of shaped.generated.matches) for (const target of [match.winnerToMatchId, match.loserToMatchId].filter(Boolean)) {
       assert.ok(positions.get(match.id) < positions.get(target), `${type}/${size}: dependency inversion`);
+    }
+    if (type === 'REPECHAGE_QUARTERFINALS') {
+      const semifinals = shaped.generated.matches.filter(m => m.matchType === 'SEMIFINAL');
+      const repechage = shaped.generated.matches.filter(m => m.drawId === shaped.generated.draws[1].id && m.round === 1);
+      for (const rep of repechage) for (const sf of semifinals) assert.ok(positions.get(sf.id) < positions.get(rep.id), 'both semifinals precede either repechage');
     }
     await apply(shaped, sp, sv);
     assert.equal(await db.match.count({ where: { schedulePlanId: sp.id } }), sv.assignments.length);
@@ -241,7 +246,7 @@ try {
     const draws = await db.draw.findMany({ where: { eventId: shaped.event.id, categoryId: shaped.category.id } });
     assert.throws(() => semanticStages({ matches: corrupt, draws, heats: [] }, shaped.category.id), /topology/);
   }
-  console.log('PASS: approved REPECHAGE, REPECHAGE_ROUND_OF_16 and DOUBLE_ELIMINATION stage mappings for 8/16/32 actual generated trees.');
+  console.log('PASS: approved REPECHAGE, REPECHAGE_QUARTERFINALS and DOUBLE_ELIMINATION stage mappings for 8/16/32 actual generated trees.');
   const competitions = new CompetitionsService(db, generator);
   for (const discipline of ['DUO', 'SHOW']) {
     const category = await db.category.create({ data: { name: `Team ${discipline}`, sportId: sport.id, discipline, gender: 'MALE', weightKind: 'OPEN' } });

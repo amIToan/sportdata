@@ -263,7 +263,7 @@ export function MatchScoreboard({ matchId }: { matchId: string }) {
         <div className={styles.clock} role="timer" aria-label="Thời gian còn lại">{timeLabel(remaining).replace(/^0(?=\d:)/, '')}</div>
         <div className={styles.matchDetails}>
           <p title={category.name}>{category.name}</p>
-          <p>{scoreboardWeight(category)} | {scoreboardRound(board)}</p>
+          <p>{[scoreboardWeight(category), scoreboardRound(board)].filter(Boolean).join(' | ')}</p>
         </div>
       </footer>
       {confirming && live && canConfirmResult && !reviewPending && !medicalPending && <div className={styles.overlay}><section role="dialog" aria-modal="true" aria-labelledby="result-title" className={`${styles.dialog} ${styles.resultDialog}`}>

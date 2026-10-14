@@ -45,7 +45,7 @@ const service = new MatchesService(db);
 const input = await service.loadDrawInput(db, event.id, category.id);
 assert.deepEqual(input.eligibleEntries.map((entry) => entry.athleteId), ['a', 'b', 'c', 'd']);
 
-for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'ROUND_ROBIN_POOL']) {
+for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'ROUND_ROBIN_POOL']) {
   const result = await service.previewDraw(event.id, category.id, { type, athleteIds: ['a', 'b', 'c', 'd'],
     revision: 0, seedingMode: 'STANDARD', groupCount: 1 }, 'admin');
   assert.equal(result.stale, false);

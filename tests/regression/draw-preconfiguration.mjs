@@ -130,7 +130,7 @@ try {
   const query = '?drawType=MAIN_TREE';
   const pairs = [{ entry1Id: entries[0].id, entry2Id: entries[2].id }];
   for (const caller of [content, viewer, ordinary, admin, managerWithPermission]) {
-    for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'ROUND_ROBIN_POOL']) {
+    for (const type of ['MAIN_TREE', 'DOUBLE_ELIMINATION', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'ROUND_ROBIN_POOL']) {
       await api(`${path}/preconfiguration?drawType=${type}`, caller.token, null, 'GET', 403);
       await api(`${path}/preconfiguration/history?drawType=${type}`, caller.token, null, 'GET', 403);
       await api(`${path}/preconfiguration`, caller.token, { drawType: type, pairs, revision: 0, seedingMode: 'RANDOM' }, 'PATCH', 403);
@@ -256,7 +256,7 @@ try {
       }
     }
   }
-  for (const type of ['REPECHAGE', 'REPECHAGE_ROUND_OF_16']) for (const count of [6, 16, 32]) {
+  for (const type of ['REPECHAGE', 'REPECHAGE_QUARTERFINALS']) for (const count of [6, 16, 32]) {
     const repechage = await fixture(count);
     const fixed = [{ entry1Id: repechage.entries[0].id, entry2Id: repechage.entries[2].id }];
     // Configurations for other rules must not interfere with this rule's preview/generation.
@@ -276,7 +276,7 @@ try {
   }
   console.log('PASS: Both Repechage formats with 6/16/32 athletes previews both bronze paths, keeps fixed pairs and persists the exact plan independently of other rules.');
 
-  for (const [count, type, groupCount] of [[2, 'ROUND_ROBIN_POOL', 1], [5, 'ROUND_ROBIN_POOL', 1], [6, 'ROUND_ROBIN_POOL', 2], [16, 'ROUND_ROBIN_POOL', 3], [5, 'REPECHAGE', 1], [5, 'REPECHAGE_ROUND_OF_16', 1]]) {
+  for (const [count, type, groupCount] of [[2, 'ROUND_ROBIN_POOL', 1], [5, 'ROUND_ROBIN_POOL', 1], [6, 'ROUND_ROBIN_POOL', 2], [16, 'ROUND_ROBIN_POOL', 3], [5, 'REPECHAGE', 1], [5, 'REPECHAGE_QUARTERFINALS', 1]]) {
     const robin = await fixture(count);
     const fixed = Array.from({ length: Math.min(2, Math.floor(count / 2)) }, (_, index) => ({ entry1Id: robin.entries[index * 2].id, entry2Id: robin.entries[index * 2 + 1].id }));
     let config = await api(`${robin.path}/preconfiguration`, privileged.token, { drawType: type, pairs: fixed, groupCount, seedingMode: 'RANDOM', revision: 0 }, 'PATCH');
