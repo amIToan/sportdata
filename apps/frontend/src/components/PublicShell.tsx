@@ -155,7 +155,7 @@ export function PublicShell({ children }: { children: React.ReactNode }) {
               </Dropdown>
             ) : (
               <Link href="/account/login" className="hidden sm:block">
-                <Button type="primary" icon={<LogIn className="h-4 w-4" />}>Đăng nhập</Button>
+                {/* <Button type="primary" icon={<LogIn className="h-4 w-4" />}>Đăng nhập</Button> */}
               </Link>
             )}
             {themeToggle}

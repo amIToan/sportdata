@@ -390,7 +390,7 @@ function CmsChrome({ children }: { children: React.ReactNode }) {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           placement="left"
-          width={264}
+          size={264}
           closable={false}
           styles={{ body: { padding: 0 } }}
         >

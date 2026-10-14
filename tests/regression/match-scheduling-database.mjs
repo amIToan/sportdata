@@ -23,6 +23,7 @@ const { SchedulingModule } = require('./dist/src/scheduling/scheduling.module.js
 const { SchedulePlansService } = require('./dist/src/scheduling/schedule-plans.service.js');
 const { MatchesService } = require('./dist/src/matches/matches.service.js');
 const { CompetitionsService } = require('./dist/src/competitions/competitions.service.js');
+const { EventsService } = require('./dist/src/events/events.service.js');
 const { contentGroupKey } = require('./dist/src/scheduling/planner/main-tree.js');
 const { semanticStages } = require('./dist/src/scheduling/planner/snapshot-planner.js');
 const { PublicEventStreamInterceptor } = require('./dist/src/matches/public-event-stream.interceptor.js');
@@ -223,7 +224,7 @@ try {
   await db.$executeRawUnsafe('DROP TRIGGER reject_schedule_test ON "MatchScheduleItem"');
   console.log('PASS: injected write failure rolls back the entire chain and ownership.');
 
-  for (const type of ['REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
+  for (const type of ['REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
     const shaped = await fixture(size, 'FIGHTING', type);
     const sp = await draft(shaped); const sv = await preview(shaped, sp);
     assert.equal(sv.canApply, true, `${type}/${size}: ${JSON.stringify(sv.violations)}`);
@@ -231,6 +232,11 @@ try {
     const positions = new Map(sv.assignments.map((item, index) => [item.matchId, index]));
     for (const match of shaped.generated.matches) for (const target of [match.winnerToMatchId, match.loserToMatchId].filter(Boolean)) {
       assert.ok(positions.get(match.id) < positions.get(target), `${type}/${size}: dependency inversion`);
+    }
+    if (type === 'REPECHAGE_QUARTERFINALS') {
+      const semifinals = shaped.generated.matches.filter(m => m.matchType === 'SEMIFINAL');
+      const repechage = shaped.generated.matches.filter(m => m.drawId === shaped.generated.draws[1].id && m.round === 1);
+      for (const rep of repechage) for (const sf of semifinals) assert.ok(positions.get(sf.id) < positions.get(rep.id), 'both semifinals precede either repechage');
     }
     await apply(shaped, sp, sv);
     assert.equal(await db.match.count({ where: { schedulePlanId: sp.id } }), sv.assignments.length);
@@ -240,7 +246,7 @@ try {
     const draws = await db.draw.findMany({ where: { eventId: shaped.event.id, categoryId: shaped.category.id } });
     assert.throws(() => semanticStages({ matches: corrupt, draws, heats: [] }, shaped.category.id), /topology/);
   }
-  console.log('PASS: approved REPECHAGE, REPECHAGE_ROUND_OF_16 and DOUBLE_ELIMINATION stage mappings for 8/16/32 actual generated trees.');
+  console.log('PASS: approved REPECHAGE, REPECHAGE_QUARTERFINALS and DOUBLE_ELIMINATION stage mappings for 8/16/32 actual generated trees.');
   const competitions = new CompetitionsService(db, generator);
   for (const discipline of ['DUO', 'SHOW']) {
     const category = await db.category.create({ data: { name: `Team ${discipline}`, sportId: sport.id, discipline, gender: 'MALE', weightKind: 'OPEN' } });
@@ -355,6 +361,56 @@ try {
   assert.equal(overlapPreview.violations.find((item) => item.code === 'PIN_CONFLICT').suggestedStart, Date.parse('2026-10-11T09:05:00+07:00'));
   await assert.rejects(apply(transitionFixture, transitionPlan, overlapPreview), /còn lỗi/);
   console.log('PASS: 09:05 finish → 09:09 manual start overrides default 5-minute transition; apply persists effective gap; locked match times preserved; real overlap blocked.');
+  const removedImages = [];
+  const events = new EventsService(db, { deleteQuietly: async (key) => { if (key) removedImages.push(key); } });
+  const eventToDelete = await fixture(4);
+  const deletionPlan = await draft(eventToDelete);
+  const deletionPreview = await preview(eventToDelete, deletionPlan);
+  await apply(eventToDelete, deletionPlan, deletionPreview);
+  await db.event.update({ where: { id: eventToDelete.event.id }, data: { bannerStorageKey: 'event-delete/banner' } });
+  await assert.rejects(db.match.deleteMany({ where: { eventId: eventToDelete.event.id } }), /không thể xóa/);
+  await assert.rejects(db.matchScheduleRevision.delete({ where: { id: deletionPreview.previewId } }), /không được sửa/);
+  await assert.rejects(db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('sportdata.event_delete', ${f.event.id}, true)`;
+    await tx.match.deleteMany({ where: { eventId: eventToDelete.event.id } });
+  }), /không thể xóa/, 'deletion marker cannot bypass protection for another event');
+  await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".reject_event_delete_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected event delete failure'; END $$`);
+  await db.$executeRawUnsafe('CREATE TRIGGER reject_event_delete_test BEFORE DELETE ON "Event" FOR EACH ROW EXECUTE FUNCTION reject_event_delete_test()');
+  await assert.rejects(events.remove(eventToDelete.event.id), /injected event delete failure/);
+  assert.ok(await db.event.findUnique({ where: { id: eventToDelete.event.id } }));
+  assert.equal(await db.match.count({ where: { eventId: eventToDelete.event.id } }), 3);
+  assert.equal(await db.matchScheduleItem.count({ where: { revisionId: deletionPreview.previewId } }), 3);
+  assert.ok(await db.matchScheduleRevision.findUnique({ where: { id: deletionPreview.previewId } }));
+  assert.ok(await db.matchSchedulePlan.findUnique({ where: { id: deletionPlan.id } }));
+  assert.equal(await db.matchScheduleCategory.count({ where: { eventId: eventToDelete.event.id } }), 1);
+  assert.deepEqual(removedImages, [], 'failed deletion must preserve stored images');
+  await db.$executeRawUnsafe('DROP TRIGGER reject_event_delete_test ON "Event"');
+  const otherMatches = await db.match.count({ where: { eventId: f.event.id } });
+  await events.remove(eventToDelete.event.id);
+  assert.equal(await db.event.findUnique({ where: { id: eventToDelete.event.id } }), null);
+  assert.equal(await db.match.count({ where: { eventId: eventToDelete.event.id } }), 0);
+  assert.equal(await db.draw.count({ where: { eventId: eventToDelete.event.id } }), 0);
+  assert.equal(await db.matchScheduleItem.count({ where: { revisionId: deletionPreview.previewId } }), 0);
+  assert.equal(await db.matchScheduleRevision.findUnique({ where: { id: deletionPreview.previewId } }), null);
+  assert.equal(await db.matchSchedulePlan.count({ where: { eventId: eventToDelete.event.id } }), 0);
+  assert.equal(await db.matchScheduleCategory.count({ where: { eventId: eventToDelete.event.id } }), 0);
+  assert.equal(await db.competitionEntry.count({ where: { eventId: eventToDelete.event.id } }), 0);
+  assert.equal(await db.athlete.count({ where: { id: { in: eventToDelete.athletes.map((athlete) => athlete.id) } } }), 4);
+  assert.equal(await db.match.count({ where: { eventId: f.event.id } }), otherMatches);
+  assert.deepEqual(removedImages, ['event-delete/banner']);
+  await assert.rejects(events.remove(eventToDelete.event.id), (error) => error.getStatus() === 404);
+  await assert.rejects(db.match.deleteMany({ where: { eventId: f.event.id } }), /không thể xóa/, 'transaction marker must not leak after commit');
+  const draftEventToDelete = await fixture(2);
+  const draftToDelete = await draft(draftEventToDelete);
+  const previewToDelete = await preview(draftEventToDelete, draftToDelete);
+  await events.remove(draftEventToDelete.event.id);
+  assert.equal(await db.matchSchedulePlan.findUnique({ where: { id: draftToDelete.id } }), null);
+  assert.equal(await db.matchScheduleRevision.findUnique({ where: { id: previewToDelete.previewId } }), null);
+  const emptyEvent = await db.event.create({ data: { name: 'Empty deletion fixture', sportId: sport.id,
+    startDate: new Date('2030-01-01'), endDate: new Date('2030-01-02') } });
+  await events.remove(emptyEvent.id);
+  assert.equal(await db.event.findUnique({ where: { id: emptyEvent.id } }), null);
+  console.log('PASS: event deletion with applied/draft schedules, atomic rollback, image cleanup, shared athlete preservation, event isolation and 404.');
   if (process.env.SCHEDULE_UI === '1' || process.argv.includes('--ui')) {
     const uiCategory = await fixture(32, 'SHOW', 'MAIN_TREE', independentA);
     const uiSport = await db.sport.create({ data: { name: 'Full Contact tự động', code: 'AUTO_SCHEDULE_UI' } });

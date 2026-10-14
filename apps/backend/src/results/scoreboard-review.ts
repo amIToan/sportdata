@@ -15,7 +15,7 @@ export function scoreboardReviewState(actions: { side: number; award: string; un
 export function isScoreboardMedalMatch(match: { matchType?: string; winnerToMatchId?: string | null; draw?: { type: string } | null }) {
   if (match.winnerToMatchId) return false;
   return match.matchType === 'FINAL'
-    || ((match.draw?.type === 'REPECHAGE' || match.draw?.type === 'REPECHAGE_ROUND_OF_16') && match.matchType === 'ELIMINATION');
+    || ((match.draw?.type === 'REPECHAGE' || match.draw?.type === 'REPECHAGE_QUARTERFINALS') && match.matchType === 'ELIMINATION');
 }
 
 type ReviewMatch = {

@@ -2,11 +2,11 @@
 
 import { imageUrl } from '@/lib/image-url';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useBracketViewport } from './useBracketViewport';
 import Link from 'next/link';
 import { Avatar, Button, Card, Tag, Tooltip } from 'antd';
-import { ChevronDown, ChevronUp, Maximize2, Minus, Plus, RotateCcw, UserRound } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Maximize2, Minus, Plus, RotateCcw, UserRound } from 'lucide-react';
 import { cn, formatDate, formatTime } from '@/lib/utils';
 
 export interface BracketCountry {
@@ -51,7 +51,7 @@ export interface BracketMatch {
 export interface BracketDraw {
   id: string;
   name: string;
-  type: 'ROUND_ROBIN_POOL' | 'MAIN_TREE' | 'POOL_WINNER_TREE' | 'REPECHAGE' | 'REPECHAGE_ROUND_OF_16' | 'DOUBLE_ELIMINATION';
+  type: 'ROUND_ROBIN_POOL' | 'MAIN_TREE' | 'POOL_WINNER_TREE' | 'REPECHAGE' | 'REPECHAGE_QUARTERFINALS' | 'DOUBLE_ELIMINATION';
   bracketSize?: number | null;
   sortOrder: number;
   matches: BracketMatch[];
@@ -62,6 +62,7 @@ type SportdataBracketProps = {
   sourceMatches?: BracketMatch[];
   readOnly?: boolean;
   matchHref?: (match: BracketMatch, athlete?: BracketAthlete | null) => string | undefined;
+  onExportPdf?: (board: HTMLElement, heading: HTMLElement) => Promise<void>;
 };
 
 const BRACKET_NODE_WIDTH = 390;
@@ -70,8 +71,11 @@ const BRACKET_SLOT_PITCH = 116;
 const BRACKET_COLUMN_STEP = 470;
 const BRACKET_HEADER_HEIGHT = 64;
 
-export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly = false, matchHref }: SportdataBracketProps) {
+export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly = false, matchHref, onExportPdf }: SportdataBracketProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
   const matches = draw.matches.map((match) => ({ ...match,
     athlete1: match.athlete1 || (match.team1 ? { id: match.team1.id, isTeam: true, fullName: match.team1.members?.map((member) => member.athlete.fullName).join(' / ') || match.team1.name, country: match.team1.country } : null),
     athlete2: match.athlete2 || (match.team2 ? { id: match.team2.id, isTeam: true, fullName: match.team2.members?.map((member) => member.athlete.fullName).join(' / ') || match.team2.name, country: match.team2.country } : null),
@@ -93,7 +97,7 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
 
   const { viewportRef, scale, autoFit, minScale, maxScale, changeScale, enableAutoFit, resetScale } = useBracketViewport(boardWidth, boardHeight, collapsed);
   const terminalMatches = matches.filter((match) => (match.round || 1) === roundNumbers.at(-1));
-  const isRepechage = draw.type === 'REPECHAGE' || draw.type === 'REPECHAGE_ROUND_OF_16';
+  const isRepechage = draw.type === 'REPECHAGE' || draw.type === 'REPECHAGE_QUARTERFINALS';
   const feederLabels = new Map<string, string>();
   sourceMatches.forEach((source) => {
     const label = source.matchNumber ? `trận #${source.matchNumber}` : `vòng ${source.round || 1}, trận ${(source.bracketPosition || 0) + 1}`;
@@ -146,7 +150,7 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
   return (
     <Card className="category-bracket-card sportdata-draw" styles={{ body: { padding: 0 } }}>
       <div className="sportdata-draw-title">
-        <div className="sportdata-draw-heading">
+        <div className="sportdata-draw-heading" ref={headingRef}>
           <span>{draw.name}</span>
           <Tag bordered={false}>{drawTypeLabel(draw.type)}</Tag>
         </div>
@@ -196,6 +200,20 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
               type="text"
             />
           </Tooltip>
+          {onExportPdf && <Button
+            aria-label={`Xuất PDF ${draw.name}`}
+            className="sportdata-draw-control"
+            icon={<Download className="h-4 w-4" />}
+            loading={exporting}
+            disabled={collapsed}
+            onClick={async () => {
+              if (exporting || !boardRef.current || !headingRef.current) return;
+              setExporting(true);
+              try { await onExportPdf(boardRef.current, headingRef.current); } finally { setExporting(false); }
+            }}
+            size="small"
+            type="text"
+          >Xuất PDF</Button>}
           <Button
             aria-label={collapsed ? 'Mở cây thi đấu' : 'Thu gọn cây thi đấu'}
             aria-expanded={!collapsed}
@@ -216,6 +234,7 @@ export function SportdataBracket({ draw, sourceMatches = draw.matches, readOnly 
             <div className="sportdata-bracket-stage" style={{ width: boardWidth * scale, height: boardHeight * scale }}>
               <div
                 className="sportdata-bracket-board"
+                ref={boardRef}
                 style={{ width: boardWidth, height: boardHeight, transform: `scale(${scale})` }}
               >
                 {roundNumbers.map((round, index) => (
@@ -389,7 +408,7 @@ function drawTypeLabel(type: BracketDraw['type']) {
     MAIN_TREE: 'Main tree',
     POOL_WINNER_TREE: 'Poolwinner tree',
     REPECHAGE: 'Repechage',
-    REPECHAGE_ROUND_OF_16: 'Repechage 1/8',
+    REPECHAGE_QUARTERFINALS: 'Quaterfinals Repechage',
     DOUBLE_ELIMINATION: 'Loại kép',
   } as const)[type];
 }

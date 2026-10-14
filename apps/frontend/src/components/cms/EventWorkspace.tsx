@@ -40,7 +40,6 @@ import type { UploadProps } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import {
   BadgeDollarSign,
-  CalendarRange,
   CheckCircle2,
   CreditCard,
   Download,
@@ -51,7 +50,6 @@ import {
   Network,
   Pencil,
   Plus,
-  Play,
   RefreshCw,
   Search,
   Settings2,
@@ -64,7 +62,6 @@ import {
 import { api, fetcher } from '@/lib/api';
 import { EventParticipationTickets } from './EventParticipationTickets';
 import { optimizeRegistrationMedia } from '@/lib/registration-media';
-import { InlineMatchSchedule } from './InlineMatchSchedule';
 import { MatchSchedulingWorkspace } from './scheduling/MatchSchedulingWorkspace';
 import { navigateSchedule } from './scheduling/schedule-ui';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
@@ -75,7 +72,7 @@ import { eventRoleLabel } from '@/lib/event-participation';
 import { DrawPreconfiguration } from '@/components/cms/DrawPreconfiguration';
 import { AthleteQuickViewModal } from '@/components/cms/AthleteQuickViewModal';
 import { RemoteAthleteSelect } from '@/components/cms/RemoteAthleteSelect';
-import { openCmsScoreboard, withCmsReturnTo } from '@/lib/cms-navigation';
+import { withCmsReturnTo } from '@/lib/cms-navigation';
 import { MATCH_STATUS_META } from '@/lib/vi-labels';
 import { registrationDisciplineKey, registrationDisciplineLabel, type RegistrationCategory } from '@/lib/registration-table';
 
@@ -328,7 +325,7 @@ export function EventWorkspace({ event, onRefresh }: EventWorkspaceProps) {
       activeKey={activeTab}
       onChange={selectTab}
       size="large"
-      destroyInactiveTabPane={false}
+      destroyOnHidden={false}
       items={[
         {
           key: 'overview',
@@ -1485,29 +1482,24 @@ function MatchesTab(props: { event: any; returnTo: string; canOperate: boolean; 
   </div>;
 }
 
-function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch, canEditBracket, initialView = 'tree' }: { event: any; returnTo: string; canOperate: boolean; canScore: boolean; canEditMatch: boolean; canEditBracket: boolean; initialView?: 'tree' | 'list' }) {
+function LegacyMatchesTab({ event, returnTo, canEditBracket, initialView = 'tree' }: { event: any; returnTo: string; canOperate: boolean; canScore: boolean; canEditMatch: boolean; canEditBracket: boolean; initialView?: 'tree' | 'list' }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const toast = useSportDataToast();
-  const { mutate: mutateGlobal } = useSWRConfig();
-  const requestedCategoryId = searchParams.get('categoryId');
-  const categoryId: string = requestedCategoryId && event.categories?.some((category: any) => category.id === requestedCategoryId)
-    ? requestedCategoryId
-    : event.categories?.[0]?.id || '';
-  const matchReturnTo = categoryId ? `${returnTo}&categoryId=${encodeURIComponent(categoryId)}` : returnTo;
+  const [exporting, setExporting] = useState(false);
+  const requestedCategoryIds = (searchParams.get('categoryIds') || searchParams.get('categoryId') || '').split(',');
+  const categoryIds: string[] = requestedCategoryIds.filter((id) => event.categories?.some((category: any) => category.id === id));
+  const selectedCategories: any[] = (event.categories || []).filter((category: any) => !categoryIds.length || categoryIds.includes(category.id));
+  const matchReturnTo = categoryIds.length ? `${returnTo}&categoryIds=${encodeURIComponent(categoryIds.join(','))}` : returnTo;
   const [view, setView] = useState<'tree' | 'list'>(initialView);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<MatchFilters>({});
+  const [scheduleSort, setScheduleSort] = useState<'ascend' | 'descend'>('ascend');
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>();
-  const [distributingDates, setDistributingDates] = useState(false);
-  const [savingFopId, setSavingFopId] = useState<string>();
-  const fopOptions = useMemo(() => [...(event.fops || [])]
-    .sort((left: any, right: any) => left.name.localeCompare(right.name, 'vi'))
-    .map((fop: any) => ({ value: fop.id, label: fop.name })), [event.fops]);
   const pageSize = 50;
-  const query = new URLSearchParams({ eventId: event.id, limit: String(pageSize), page: String(page), hideByes: 'true' });
-  if (categoryId) query.set('categoryId', categoryId);
+  const query = new URLSearchParams({ eventId: event.id, limit: String(pageSize), page: String(page), hideByes: 'true', scheduleOrder: scheduleSort === 'descend' ? 'desc' : 'asc' });
+  if (categoryIds.length) query.set('categoryIds', categoryIds.join(','));
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && String(value).trim()) query.set(key, String(value).trim());
   });
@@ -1576,99 +1568,81 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
     ),
   });
   const { data, error, isLoading, mutate } = useSWR<any>(`/matches?${query}`, fetcher, { refreshInterval: 5000 });
-  const { data: drawData, isLoading: drawsLoading, mutate: mutateDraws } = useSWR<{ draws: BracketDraw[] }>(categoryId ? `/matches/event/${event.id}/category/${categoryId}/draws` : null, fetcher, { refreshInterval: 5000 });
-  const draws = [...(drawData?.draws || [])].sort((a, b) => a.sortOrder - b.sortOrder);
-  const updateMatchFop = async (match: any, fopId?: string) => {
-    if ((match.fopId || undefined) === fopId || savingFopId) return;
-    setSavingFopId(match.id);
-    try {
-      const selectedFop = fopOptions.find((option) => option.value === fopId);
-      await api.patch(`/matches/${match.id}`, { fopId: fopId || null, fop: selectedFop?.label || null });
-      await mutate((current: any) => current ? {
-        ...current,
-        items: current.items.map((item: any) => item.id === match.id
-          ? { ...item, fopId: fopId || null, fop: selectedFop?.label || null }
-          : item),
-      } : current, { revalidate: false });
-      toast.success(selectedFop ? `Đã chuyển trận sang ${selectedFop.label}.` : 'Đã bỏ sân của trận đấu.');
-      void Promise.all([mutate(), mutateDraws(), mutateGlobal(`/events/${event.id}`)]);
-    } catch (error: any) {
-      const detail = error.response?.data?.message;
-      toast.error(Array.isArray(detail) ? detail.join(', ') : detail || 'Không thể cập nhật sân thi đấu.');
-    } finally {
-      setSavingFopId(undefined);
-    }
-  };
+  const drawUrls = selectedCategories.map((category) => `/matches/event/${event.id}/category/${category.id}/draws`);
+  const { data: drawData, error: drawsError, isLoading: drawsLoading, mutate: mutateDraws } = useSWR<Array<{ draws: BracketDraw[] }>>(
+    view === 'tree' && drawUrls.length ? drawUrls : null,
+    (urls: string[]) => Promise.all(urls.map((url) => fetcher(url))),
+    { refreshInterval: 5000 },
+  );
+  const draws = (drawData || []).flatMap((result) => [...result.draws].sort((a, b) => a.sortOrder - b.sortOrder));
   const loadError = Array.isArray(error?.response?.data?.message)
     ? error.response.data.message.join(', ')
     : error?.response?.data?.message || error?.message;
-  const eventDayCount = Math.max(
-    1,
-    Math.floor((new Date(event.endDate).getTime() - new Date(event.startDate).getTime()) / 86_400_000) + 1,
-  );
-
-  const distributeDates = async () => {
-    setDistributingDates(true);
+  const exportFile = async (draw?: BracketDraw, board?: HTMLElement, heading?: HTMLElement) => {
+    if (!draw && exporting) return;
+    if (!draw) setExporting(true);
+    const params = new URLSearchParams(query);
+    params.delete('page');
+    params.delete('limit');
+    if (categoryIds.length) params.set('categoryIds', categoryIds.join(','));
     try {
-      const response = await api.post(`/matches/event/${event.id}/distribute-dates`);
-      await Promise.all([
-        mutate(),
-        mutateDraws(),
-        mutateGlobal((key) => typeof key === 'string' && (
-          key.startsWith(`/matches?`) && key.includes(`eventId=${event.id}`)
-          || key.startsWith(`/matches/event/${event.id}/`)
-        )),
-      ]);
-      const result = response.data;
-      toast.success(
-        `Đã chia ${result.eligible} trận chưa xếp giờ vào ${result.usedDayCount}/${result.eventDayCount} ngày.${result.skippedScheduledOrLocked ? ` Giữ nguyên ${result.skippedScheduledOrLocked} trận đã xếp hoặc khóa.` : ''}`,
-      );
+      if (draw) {
+        if (!board || !heading) throw new Error('Không tìm thấy sơ đồ để xuất.');
+        const { exportBracketPdf } = await import('@/lib/export-bracket-pdf');
+        const filename = `${draw.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').slice(0, 160)}-${draw.id}.pdf`;
+        await exportBracketPdf(board, heading, filename);
+        toast.success(`Đã xuất PDF: ${draw.name}.`);
+        return;
+      }
+      const endpoint = `/matches/event/${event.id}/export/matches.csv?${params}`;
+      const response = await api.get(endpoint, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `sportdata-danh-sach-${event.id}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success('Đã xuất CSV toàn bộ danh sách theo bộ lọc hiện tại.');
     } catch (error: any) {
-      const message = error.response?.data?.message;
-      toast.error(Array.isArray(message) ? message.join('. ') : message || 'Không thể chia lịch theo ngày.');
-    } finally {
-      setDistributingDates(false);
-    }
+      let detail = error.response?.data;
+      if (detail instanceof Blob) {
+        try { detail = JSON.parse(await detail.text()); } catch { detail = undefined; }
+      }
+      toast.error(Array.isArray(detail?.message) ? detail.message.join(', ') : detail?.message || 'Không thể xuất file. Vui lòng thử lại.');
+    } finally { if (!draw) setExporting(false); }
   };
-
   return (
     <div className="space-y-5">
       <Card styles={{ body: { padding: 16 } }}>
         <div className="flex flex-wrap items-center gap-3">
-          <Select className="min-w-72 flex-1" aria-label="Hạng đấu" value={categoryId || undefined} placeholder="Chọn hạng đấu" onChange={(value) => {
+          <Select mode="multiple" className="min-w-72 flex-1" aria-label="Hạng đấu" value={categoryIds.length ? categoryIds : ['ALL']} placeholder="Tất cả" maxTagCount="responsive" onChange={(values: string[]) => {
             const params = new URLSearchParams(searchParams.toString());
-            params.set('categoryId', value);
+            const ids = values.at(-1) === 'ALL' ? [] : values.filter((value) => value !== 'ALL');
+            params.delete('categoryId');
+            if (ids.length) params.set('categoryIds', ids.join(','));
+            else params.delete('categoryIds');
             setPage(1);
             router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-          }} options={(event.categories || []).map((category: any) => ({ value: category.id, label: `${category.sport?.name || ''} · ${category.name}` }))} />
+          }} options={[{ value: 'ALL', label: 'Tất cả' }, ...(event.categories || []).map((category: any) => ({ value: category.id, label: `${category.sport?.name || ''} · ${category.name}` }))]} />
           <Segmented value={view} onChange={(value) => setView(value as 'tree' | 'list')} options={[{ value: 'tree', label: 'Sơ đồ cây', icon: <Network className="h-4 w-4" /> }, { value: 'list', label: 'Danh sách', icon: <List className="h-4 w-4" /> }]} />
-          <Popconfirm
-            title="Chia đều trận đấu theo các ngày của sự kiện?"
-            description="Chỉ đổi ngày của trận chưa có giờ thi đấu chính thức. Trận đã xếp giờ hoặc đã khóa sẽ được giữ nguyên."
-            okText="Chia đều"
-            cancelText="Hủy"
-            onConfirm={distributeDates}
-          >
-            <Button
-              icon={<CalendarRange className="h-4 w-4" />}
-              loading={distributingDates}
-              disabled={!canOperate || eventDayCount < 2 || !event._count?.matches}
-            >
-              Chia đều theo ngày
-            </Button>
-          </Popconfirm>
+
           <Button icon={<RefreshCw className="h-4 w-4" />} onClick={() => Promise.all([mutate(), mutateDraws()])}>Làm mới</Button>
         </div>
       </Card>
       {view === 'tree' ? (
         <div className="space-y-5">
-          {drawsLoading ? <Card loading /> : draws.length ? draws.map((draw) => <SportdataBracket key={draw.id} draw={draw} sourceMatches={draws.flatMap((item) => item.matches)} readOnly={!canEditBracket} matchHref={(match) => withCmsReturnTo(`/cms/matches/${match.id}/edit`, matchReturnTo)} />) : <Card><Empty description="Chưa sinh sơ đồ cây cho hạng đấu này." /></Card>}
+          {drawsError ? <ToastNotice type="error" showIcon message="Không thể tải sơ đồ cây" /> : drawsLoading ? <Card loading /> : draws.length ? draws.map((draw) => <SportdataBracket key={draw.id} draw={draw} onExportPdf={(board, heading) => exportFile(draw, board, heading)} sourceMatches={draws.flatMap((item) => item.matches)} readOnly={!canEditBracket} matchHref={(match) => withCmsReturnTo(`/cms/matches/${match.id}/edit`, matchReturnTo)} />) : <Card><Empty description="Chưa sinh sơ đồ cây cho hạng đấu này." /></Card>}
         </div>
       ) : (
         <Card styles={{ body: { padding: 0 } }}>
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
             <span className="text-sm text-slate-500">Bấm biểu tượng lọc trên tiêu đề cột để tìm trận. Lọc cả hai cột VĐV để tìm cặp đấu theo bất kỳ thứ tự nào.</span>
             {hasFilters && <Button onClick={() => { setFilters({}); setPage(1); }}>Xóa bộ lọc</Button>}
+            <Tooltip title="Xuất tất cả các trang theo bộ lọc và thứ tự hiện tại; mở được bằng Excel">
+              <Button className="ml-auto" icon={<Download className="h-4 w-4" />} loading={exporting} onClick={() => void exportFile()}>Xuất CSV</Button>
+            </Tooltip>
           </div>
           {error ? (
             <ToastNotice
@@ -1687,8 +1661,8 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
             size="small"
             tableLayout="fixed"
             locale={{ emptyText: <Empty description={hasFilters ? 'Không tìm thấy trận đấu phù hợp. Thử đổi hoặc xóa bộ lọc.' : 'Chưa có trận đấu trong hạng đấu này.'} /> }}
-            scroll={{ x: 1550 }}
-            onChange={(pagination, tableFilters, _sorter, extra) => {
+            scroll={{ x: 1700 }}
+            onChange={(pagination, tableFilters, sorter, extra) => {
               if (extra.action === 'filter') {
                 const nextFilters: MatchFilters = {};
                 Object.entries(tableFilters).forEach(([key, values]) => {
@@ -1697,6 +1671,10 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
                   }
                 });
                 setFilters(nextFilters);
+                setPage(1);
+              } else if (extra.action === 'sort') {
+                const selectedSort = Array.isArray(sorter) ? sorter[0] : sorter;
+                setScheduleSort(selectedSort.order === 'descend' ? 'descend' : 'ascend');
                 setPage(1);
               } else if (extra.action === 'paginate') {
                 setPage(pagination.current || 1);
@@ -1711,18 +1689,17 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
               showTotal: (total) => `${total} trận đấu`,
             }}
             columns={[
+              { title: 'Thứ tự thi đấu', dataIndex: 'scheduleOrder', key: 'scheduleOrder', width: 140, sorter: true, sortOrder: scheduleSort, sortDirections: ['ascend', 'descend', 'ascend'], render: (value: number | null) => value ?? 'Chưa xếp giờ' },
+              { title: 'Hạng đấu', key: 'category', width: 220, render: (_: unknown, match: any) => match.category?.name || '—' },
               { title: '#', dataIndex: 'matchNumber', width: 90, ...columnFilter('matchNumber', 'Số trận', 'number') },
               { title: 'Vòng', dataIndex: 'round', width: 90, ...columnFilter('round', 'Vòng đấu', 'number') },
               {
                 title: 'Ngày / giờ',
                 ...columnFilter('date', 'Ngày thi đấu', 'date'),
                 width: 220,
-                render: (_: unknown, match: any) => <InlineMatchSchedule match={match} canEdit={canEditMatch} event={event} onSaved={async (updated) => {
-                  await mutate((current: any) => current ? {
-                    ...current, items: current.items.map((item: any) => item.id === match.id ? { ...item, ...updated } : item),
-                  } : current, { revalidate: false });
-                  void Promise.allSettled([mutate(), mutateDraws(), mutateGlobal(`/events/${event.id}`)]);
-                }} />,
+                render: (_: unknown, match: any) => match.startTime
+                  ? dayjs(match.startTime).tz('Asia/Ho_Chi_Minh').format('HH:mm DD/MM/YYYY')
+                  : `${dayjs(match.matchDate).tz('Asia/Ho_Chi_Minh').format('DD/MM/YYYY')} · Chưa xếp giờ`,
               },
               { title: 'VĐV 1', width: 220, ...columnFilter('athleteName', 'Tên VĐV (ở bất kỳ bên nào)'), render: (_: unknown, match: any) => renderAthlete(match, 1) },
               { title: 'VĐV 2', width: 220, ...columnFilter('opponentName', 'Tên đối thủ (ở bất kỳ bên nào)'), render: (_: unknown, match: any) => renderAthlete(match, 2) },
@@ -1744,40 +1721,9 @@ function LegacyMatchesTab({ event, returnTo, canOperate, canScore, canEditMatch,
                 dataIndex: 'fop',
                 width: 170,
                 ...columnFilter('venue', 'Tên sân / sàn'),
-                render: (value: string, match: any) => {
-                  if (!canEditMatch) return value || 'Chưa chọn sân';
-                  const reason = match.status === 'RUNNING' ? 'Trận đang thi đấu, không thể đổi sân'
-                    : match.scheduleLocked ? 'Mở khóa lịch trước khi đổi sân'
-                      : !fopOptions.length ? 'Thêm sân trong tab Sân / FOP trước' : undefined;
-                  return (
-                    <Tooltip title={reason}>
-                      <Select
-                        size="small"
-                        className="w-full"
-                        aria-label={`Sân thi đấu trận ${match.matchNumber || match.id}`}
-                        placeholder="Chọn sân"
-                        showSearch
-                        allowClear
-                        optionFilterProp="label"
-                        value={match.fopId || undefined}
-                        options={fopOptions}
-                        loading={savingFopId === match.id}
-                        disabled={Boolean(reason) || Boolean(savingFopId)}
-                        onChange={(fopId) => void updateMatchFop(match, fopId)}
-                      />
-                    </Tooltip>
-                  );
-                },
+                render: (value: string, match: any) => match.fopRecord?.name || value || 'Chưa chọn sân',
               },
               { title: 'Trạng thái', key: 'status', dataIndex: 'status', width: 150, filters: Object.entries(MATCH_STATUS_META).map(([value, meta]) => ({ value, text: meta.label })), filterMultiple: false, filteredValue: filters.status ? [filters.status] : null, render: (value: string) => <Tag color={MATCH_STATUS_META[value]?.color}>{MATCH_STATUS_META[value]?.label || value}</Tag> },
-              {
-                title: 'Điều hành', width: 210, render: (_: unknown, match: any) => {
-                  const ready = match.athlete1Id && match.athlete2Id && match.fopId && match.startTime && match.endTime;
-                  const playable = ['SCHEDULED', 'RUNNING'].includes(match.status);
-                  const reason = !canScore ? 'Bạn không có quyền chấm điểm' : !playable ? 'Trận đã kết thúc hoặc bị hủy' : !ready ? 'Cần đủ hai VĐV, sân và giờ thi đấu' : 'Mở bảng điểm; kiểm tra điều kiện trước khi bắt đầu';
-                  return <Space><Tooltip title={reason}><span><Button aria-label={`Mở bảng điểm trận ${match.matchNumber || match.id}`} type="primary" target="sportdata-scoreboard" onClick={(event) => openCmsScoreboard(event, match.id)} disabled={!canScore || !playable || !ready} href={canScore && playable && ready ? `/cms/matches/${match.id}/scoreboard` : undefined} icon={<Play className="h-4 w-4" />}>Bảng điểm</Button></span></Tooltip>{canEditMatch && <Button aria-label="Chỉnh sửa trận" type="text" href={withCmsReturnTo(`/cms/matches/${match.id}/edit`, matchReturnTo)} icon={<Eye className="h-4 w-4" />} />}</Space>;
-                }
-              },
             ]}
           />
         </Card>
@@ -2009,7 +1955,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
   const toast = useSportDataToast();
   const { mutate: mutateGlobal } = useSWRConfig();
   const [categoryId, setCategoryId] = useState<string>(event.categories?.[0]?.id || '');
-  const [format, setFormat] = useState<'SINGLE' | 'DOUBLE' | 'REPECHAGE' | 'REPECHAGE_ROUND_OF_16' | 'ROUND_ROBIN' | 'ABSOLUTE'>('SINGLE');
+  const [format, setFormat] = useState<'SINGLE' | 'DOUBLE' | 'REPECHAGE' | 'REPECHAGE_QUARTERFINALS' | 'ROUND_ROBIN' | 'ABSOLUTE'>('REPECHAGE_QUARTERFINALS');
   const [seedingMode, setSeedingMode] = useState('STANDARD');
   const [groupCount, setGroupCount] = useState(1);
   const [generating, setGenerating] = useState(false);
@@ -2022,7 +1968,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
   }>(canOperate && categoryId ? `/matches/event/${event.id}/category/${categoryId}/draw-state` : null, fetcher, { refreshInterval: 5000 });
   const hasDraws = !!drawState && (drawState.drawCount > 0 || drawState.groupCount > 0);
   const activeEntries = entries.filter((entry) => entry.status === 'VERIFIED' && (entry.type === 'INDIVIDUAL' && entry.athlete?.id || ['DUO', 'SHOW'].includes(category?.discipline) && entry.type === 'TEAM' && entry.team?.members?.length === 2));
-  const isRepechage = format === 'REPECHAGE' || format === 'REPECHAGE_ROUND_OF_16';
+  const isRepechage = format === 'REPECHAGE' || format === 'REPECHAGE_QUARTERFINALS';
   const usesRoundRobin = format === 'ROUND_ROBIN' || (isRepechage && activeEntries.length < 6);
   const drawType = format === 'ROUND_ROBIN' ? 'ROUND_ROBIN_POOL' : format === 'DOUBLE' ? 'DOUBLE_ELIMINATION' : isRepechage ? format : 'MAIN_TREE';
   const minimumEntries = format === 'DOUBLE' ? 4 : 2;
@@ -2092,8 +2038,8 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
   };
 
   const formatCards = [
+    { value: 'REPECHAGE_QUARTERFINALS', title: 'Quaterfinals Repechage', description: 'Chỉ người thua tứ kết vào 2 trận vớt sau khi cả hai bán kết được xác nhận. Tranh 2 HCĐ chéo nhánh. Dưới 6 VĐV đấu vòng tròn.' },
     { value: 'REPECHAGE', title: 'Repechage Brackets', description: 'Nhánh chính tranh vàng/bạc, hai nhánh vớt tranh HCĐ. Dưới 6 VĐV tự động đấu vòng tròn.' },
-    { value: 'REPECHAGE_ROUND_OF_16', title: 'Repechage 1/8', description: 'Thua từ vòng 1/8, tứ kết hoặc bán kết vào nhánh vớt ngay. Tranh 2 HCĐ chéo nhánh. Dưới 6 VĐV đấu vòng tròn.' },
     { value: 'SINGLE', title: 'Loại trực tiếp', description: 'Thua một trận bị loại. Phù hợp phần lớn giải đấu.' },
     { value: 'DOUBLE', title: 'Loại kép', description: 'Thi đấu theo nhánh thắng, nhánh thua và trận chung kết.' },
     { value: 'ROUND_ROBIN', title: 'Đấu vòng tròn', description: 'Mọi VĐV trong bảng thi đấu với nhau, phù hợp bảng nhỏ.' },
@@ -2121,7 +2067,7 @@ function BracketTab({ event, canOperate, preconfigureActorId }: { event: any; ca
           ))}
         </div>
         {isRepechage && usesRoundRobin && <ToastNotice className="!mt-4" type="info" showIcon message="Dưới 6 VĐV: tự động dùng vòng tròn. Cặp đặt trước áp dụng ở lượt đấu đầu." />}
-        {format === 'REPECHAGE_ROUND_OF_16' && !usesRoundRobin && <ToastNotice className="!mt-4" type="info" showIcon message="Bảng 16 VĐV: 8 người thua vòng 1/8 đấu còn 4; gặp 4 người thua tứ kết rồi đấu tiếp chọn 2 người thắng vớt A/B. Thắng vớt A gặp thua bán kết B và ngược lại, trao 2 HCĐ. Với bảng lớn hơn, nhánh vớt bắt đầu từ vòng 1/8." />}
+        {format === 'REPECHAGE_QUARTERFINALS' && !usesRoundRobin && <ToastNotice className="!mt-4" type="info" showIcon message="Người thua trước tứ kết bị loại. Thua TK1 gặp thua TK2 ở vớt A; thua TK3 gặp thua TK4 ở vớt B. Chỉ bắt đầu vớt sau khi cả hai bán kết hoàn tất và xác nhận kết quả. Thắng vớt A gặp thua bán kết 2; thắng vớt B gặp thua bán kết 1. Hai người thắng cùng nhận HCĐ." />}
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           {preconfigureActorId ? <span className="self-center text-sm text-slate-500">Cấu hình cặp và cách xếp trong Pre-matches phía trên.</span> : format === 'ROUND_ROBIN' ? <InputNumber className="w-full" min={1} max={Math.max(1, Math.min(16, Math.floor(activeEntries.length / 2)))} value={groupCount} onChange={(value) => setGroupCount(value || 1)} addonBefore="Số bảng" /> : usesRoundRobin ? <span className="self-center text-sm text-slate-500">Thi đấu vòng tròn trong một bảng.</span> : <Select value={seedingMode} onChange={setSeedingMode} options={[{ value: 'STANDARD', label: 'Xếp hạt giống chuẩn' }, { value: 'RANDOM', label: 'Ngẫu nhiên' }, { value: 'COUNTRY_SEPARATED', label: 'Tách quốc gia' }, { value: 'FEDERATION_SEPARATED', label: 'Tách đơn vị / CLB' }]} />}
           <Space wrap>

@@ -3,16 +3,18 @@ import { MATCH_TYPE_LABELS } from './vi-labels';
 export type ScoreboardCategory = {
   name: string;
   matchDurationSeconds?: number;
+  weightKind?: string | null;
   minWeight?: number | null;
   maxWeight?: number | null;
 };
 
 export function scoreboardWeight(category: ScoreboardCategory) {
+  if (category.weightKind === 'OPEN') return '';
   const { minWeight, maxWeight } = category;
   if (minWeight != null && maxWeight != null) return `${minWeight}–${maxWeight} kg`;
   if (maxWeight != null) return `-${maxWeight} kg`;
   if (minWeight != null) return `+${minWeight} kg`;
-  return 'Không giới hạn cân';
+  return '';
 }
 
 export function scoreboardRound(match: { matchType?: string; round?: number | null; matchNumber?: number | null }) {

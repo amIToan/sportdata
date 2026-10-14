@@ -1,3 +1,4 @@
+import { repechageSemifinalIds } from './quarterfinal-repechage';
 import { assertAthleteEligibility } from '../competitions/athlete-eligibility';
 import { resolveEventAgeLimits } from '../events/event-age-limits';
 import { isAutomaticScheduleBye } from '../scheduling/planner/main-tree';
@@ -128,7 +129,22 @@ type DateAssignableMatch = {
 export class MatchesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async assertRepechageReady(db: PrismaService | Prisma.TransactionClient, match: Match) {
+    if (!match.drawId || match.round !== 1) return;
+    const draw = await db.draw.findUnique({ where: { id: match.drawId } });
+    if (draw?.type !== DrawType.REPECHAGE_QUARTERFINALS) return;
+    const matches = await db.match.findMany({ where: { eventId: match.eventId, categoryId: match.categoryId } });
+    const ids = repechageSemifinalIds(match, matches, [draw]);
+    if (ids.length !== 2 || ids.some((id) => {
+      const semifinal = matches.find((item) => item.id === id);
+      return !semifinal || semifinal.status !== MatchStatus.FINISHED
+        || !this.isGeneratedWalkover(semifinal) && !new Set<ResultStatus>([ResultStatus.REFEREE_CONFIRMED, ResultStatus.APPROVED,
+          ResultStatus.PUBLISHED, ResultStatus.LOCKED]).has(semifinal.resultStatus);
+    })) throw new BadRequestException('Phải hoàn tất cả hai trận bán kết và xác nhận kết quả trước khi bắt đầu repechage');
+  }
+
   async assertScoreboardReady(db: PrismaService | Prisma.TransactionClient, match: Match) {
+    await this.assertRepechageReady(db, match);
     if (match.schedulePlanId && match.scheduleRevisionId) {
       const current = await db.matchScheduleItem.findUnique({ where: { revisionId_matchId: { revisionId: match.scheduleRevisionId, matchId: match.id } } });
       if (!current) throw new ConflictException('Lịch thi đấu không nhất quán. Hãy mở lịch để kiểm tra.');
@@ -205,7 +221,7 @@ export class MatchesService {
     })) throw new ConflictException('VĐV chưa đủ thời gian nghỉ sau trận vừa kết thúc');
   }
 
-  async findAll(query: QueryMatchDto, includeUnpublishedResults = false) {
+  async findAll(query: QueryMatchDto, includeUnpublishedResults = false, allRows = false) {
     const {
       search,
       athleteName,
@@ -230,9 +246,14 @@ export class MatchesService {
 
     if (eventId) where.eventId = eventId;
     if (categoryId) where.categoryId = categoryId;
+    if (query.categoryIds) {
+      const categoryIds = query.categoryIds.split(',').map((id) => id.trim()).filter(Boolean);
+      if (categoryIds.length) where.categoryId = { in: categoryIds };
+    }
     if (sportId) where.category = { sportId };
     if (fopId) where.fopId = fopId;
     const additionalFilters: Prisma.MatchWhereInput[] = [];
+    let byeFilter: Prisma.MatchWhereInput | undefined;
     if (query.federationId) {
       additionalFilters.push({ OR: [
         { athlete1: { federationId: query.federationId } },
@@ -241,7 +262,7 @@ export class MatchesService {
       ] });
     }
     if (query.hideByes === 'true') {
-      additionalFilters.push({
+      byeFilter = {
         OR: [
           { winMethod: null },
           { NOT: {
@@ -256,7 +277,8 @@ export class MatchesService {
             ],
           } },
         ],
-      });
+      };
+      additionalFilters.push(byeFilter);
     }
     const name = athleteName?.trim();
     const opponent = opponentName?.trim();
@@ -315,12 +337,52 @@ export class MatchesService {
       };
     }
 
-    const orderBy: Prisma.MatchOrderByWithRelationInput[] = [
+    const orderBy: Prisma.MatchOrderByWithRelationInput[] = query.matchNumberOrder ? [
+      { matchNumber: { sort: query.matchNumberOrder, nulls: 'last' } },
+      { id: 'asc' },
+    ] : [
       { matchDate: 'asc' },
       { startTime: 'asc' },
       { matchNumber: 'asc' },
       { id: 'asc' },
     ];
+
+    if (query.scheduleOrder) {
+      if (!eventId) throw new BadRequestException('Thứ tự thi đấu cần được lọc theo sự kiện.');
+      // Rank the selected categories before applying column filters or pagination.
+      const scope: Prisma.MatchWhereInput = {
+        eventId, categoryId: where.categoryId, category: where.category,
+        ...(byeFilter ? { AND: [byeFilter] } : {}),
+      };
+      const [scheduled, filtered] = await Promise.all([
+        this.prisma.match.findMany({ where: scope, select: { id: true, startTime: true }, orderBy: [
+          { startTime: { sort: 'asc', nulls: 'last' } }, { matchDate: 'asc' }, { matchNumber: 'asc' }, { id: 'asc' },
+        ] }),
+        this.prisma.match.findMany({ where, select: { id: true } }),
+      ]);
+      const ranks = new Map(scheduled.filter((match) => match.startTime).map((match, index) => [match.id, index + 1]));
+      const positions = new Map(scheduled.map((match, index) => [match.id, index]));
+      const ordered = filtered.sort((left, right) => {
+        const leftRank = ranks.get(left.id);
+        const rightRank = ranks.get(right.id);
+        if (leftRank === undefined || rightRank === undefined) {
+          if (leftRank !== undefined) return -1;
+          if (rightRank !== undefined) return 1;
+          return (positions.get(left.id) ?? 0) - (positions.get(right.id) ?? 0);
+        }
+        return query.scheduleOrder === 'desc' ? rightRank - leftRank : leftRank - rightRank;
+      });
+      const ids = (allRows ? ordered : ordered.slice((page - 1) * limit, page * limit)).map((match) => match.id);
+      const rows = await this.prisma.match.findMany({ where: { id: { in: ids } }, include: MATCH_INCLUDE });
+      const byId = new Map(rows.map((match) => [match.id, match]));
+      return {
+        items: ids.map((id) => {
+          const match = byId.get(id);
+          return match ? { ...(includeUnpublishedResults ? match : this.hideUnpublishedResult(match)), scheduleOrder: ranks.get(id) ?? null } : null;
+        }).filter(Boolean),
+        meta: { total: ordered.length, page, limit, totalPages: Math.ceil(ordered.length / limit) },
+      };
+    }
 
     if (pagination === 'cursor') {
       const rows = await this.prisma.match.findMany({
@@ -351,8 +413,7 @@ export class MatchesService {
       this.prisma.match.findMany({
         where,
         include: MATCH_INCLUDE,
-        skip,
-        take: limit,
+        ...(allRows ? {} : { skip, take: limit }),
         orderBy,
       }),
       this.prisma.match.count({ where }),
@@ -371,7 +432,7 @@ export class MatchesService {
     };
   }
 
-  async findScheduleSummary(eventId: string) {
+  async findScheduleSummary(eventId: string, hideByes = false) {
     const event = await this.prisma.event.findUnique({
       where: { id: eventId },
       select: { id: true },
@@ -383,6 +444,13 @@ export class MatchesService {
         COUNT(*)::int AS "count"
       FROM "Match"
       WHERE "eventId" = ${eventId}
+        AND (${hideByes} = false OR NOT (
+          "drawId" IS NOT NULL AND "status" = 'FINISHED'
+          AND "winMethod" IS NOT DISTINCT FROM 'WALKOVVER'::"WinMethod"
+          AND "resultStatus" = 'DRAFT' AND "resultEnteredAt" IS NULL
+          AND (("athlete1Id" IS NULL AND "team1Id" IS NULL)
+            OR ("athlete2Id" IS NULL AND "team2Id" IS NULL))
+        ))
       GROUP BY 1
       ORDER BY 1 ASC
     `);
@@ -1046,7 +1114,7 @@ export class MatchesService {
       return value;
     };
     return createHash('sha256').update(JSON.stringify(canonical({
-      algorithm: 3, event: input.event, category: input.category, entries: input.entries, fops: input.fops, pairs, options,
+      algorithm: (options as { type?: string })?.type === DrawType.REPECHAGE_QUARTERFINALS ? 4 : 3, event: input.event, category: input.category, entries: input.entries, fops: input.fops, pairs, options,
     }))).digest('hex');
   }
 
@@ -1063,7 +1131,7 @@ export class MatchesService {
         used.add(id);
       }
     }
-    if (drawType === DrawType.ROUND_ROBIN_POOL || ((drawType === DrawType.REPECHAGE || drawType === DrawType.REPECHAGE_ROUND_OF_16) && input.eligibleEntries.length < 6)) {
+    if (drawType === DrawType.ROUND_ROBIN_POOL || ((drawType === DrawType.REPECHAGE || drawType === DrawType.REPECHAGE_QUARTERFINALS) && input.eligibleEntries.length < 6)) {
       // Empty rosters can still have an empty configuration while registrations arrive.
       if (!pairs.length && input.eligibleEntries.length < 2) return;
       const sizes = this.roundRobinGroupSizes(input.eligibleEntries.length, drawType !== DrawType.ROUND_ROBIN_POOL ? 1 : groupCount);
@@ -1141,7 +1209,7 @@ export class MatchesService {
   private buildDrawPlan(input: Awaited<ReturnType<MatchesService['loadDrawInput']>>, dto: GenerateDrawDto,
     pairs: PreconfiguredPairDto[]) {
     if (dto.type === DrawType.ROUND_ROBIN_POOL) return this.buildRoundRobinPlan(input, dto, pairs);
-    const isRepechage = dto.type === DrawType.REPECHAGE || dto.type === DrawType.REPECHAGE_ROUND_OF_16;
+    const isRepechage = dto.type === DrawType.REPECHAGE || dto.type === DrawType.REPECHAGE_QUARTERFINALS;
     if (isRepechage && input.eligibleEntries.length < 6) return this.buildRoundRobinPlan(input, { ...dto, groupCount: 1 }, pairs);
     const type = dto.type || DrawType.MAIN_TREE;
     const athletes = dto.athleteIds.map((id) => {
@@ -1168,11 +1236,11 @@ export class MatchesService {
     const draws = [{ id: mainId, name: baseName, type: DrawType.MAIN_TREE as DrawType, bracketSize: size, sortOrder: 10 }];
     if (type === DrawType.DOUBLE_ELIMINATION || isRepechage) {
       const loserId = randomUUID();
-      const secondary = { ...common, drawId: loserId, winnersRounds: rounds, fromRoundOf16: type === DrawType.REPECHAGE_ROUND_OF_16 };
+      const secondary = { ...common, drawId: loserId, winnersRounds: rounds, fromQuarterfinals: type === DrawType.REPECHAGE_QUARTERFINALS };
       matches.push(...(type === DrawType.DOUBLE_ELIMINATION
         ? this.buildDoubleEliminationBracket(secondary) : this.buildRepechageBracket(secondary)));
-      draws.push({ id: loserId, name: `${baseName} - ${isRepechage ? (type === DrawType.REPECHAGE_ROUND_OF_16 ? 'REPECHAGE 1/8' : 'REPECHAGE') : 'DOUBLE-ELIMINATION TREE'}`,
-        type, bracketSize: Math.max(2, (isRepechage ? Math.min(type === DrawType.REPECHAGE_ROUND_OF_16 ? 16 : 32, size) : size) / 2), sortOrder: 20 });
+      draws.push({ id: loserId, name: `${baseName} - ${isRepechage ? (type === DrawType.REPECHAGE_QUARTERFINALS ? 'Quaterfinals Repechage' : 'REPECHAGE') : 'DOUBLE-ELIMINATION TREE'}`,
+        type, bracketSize: Math.max(2, (isRepechage ? Math.min(type === DrawType.REPECHAGE_QUARTERFINALS ? 8 : 32, size) : size) / 2), sortOrder: 20 });
     }
     this.resolveGeneratedWalkovers(matches);
     this.assignEvenMatchDates(matches as Array<GeneratedMatch & DateAssignableMatch>, input.event.startDate, input.event.endDate);
@@ -1624,12 +1692,12 @@ export class MatchesService {
     fops: ScheduledFop[];
     fopCursor: { value: number };
     winnersRounds: GeneratedMatch[][];
-    fromRoundOf16?: boolean;
+    fromQuarterfinals?: boolean;
     number: { value: number };
   }) {
-    // Every loser from the selected entry round through the semifinals feeds
-    // directly into repechage. Earlier qualifying rounds are single elimination.
-    const eligibleRounds = input.winnersRounds.slice(input.fromRoundOf16 ? -4 : -5);
+    // Locate quarterfinals by bracket depth, including brackets with byes.
+    // The separate legacy repechage format retains its round-of-32 entry point.
+    const eligibleRounds = input.winnersRounds.slice(input.fromQuarterfinals ? -3 : -5);
     const roundCount = eligibleRounds.length * 2 - 4;
     const rounds: GeneratedMatch[][] = [];
     for (let stage = 1; stage <= roundCount; stage += 1) {
@@ -1957,6 +2025,7 @@ export class MatchesService {
   ) {
     const progressionFields: Array<keyof Match> = ['status', 'winnerId', 'winnerTeamId', 'athlete1Id', 'athlete2Id', 'team1Id', 'team2Id', 'winnerToMatchId', 'winnerToSide', 'loserToMatchId', 'loserToSide'];
     if (progressionFields.every((field) => previous[field] === updated[field])) return;
+    await this.invalidateQuarterfinalDescendants(transaction, previous, updated);
     await this.clearProgressionTarget(transaction, previous.winnerToMatchId, previous.winnerToSide, previous.winnerId);
     await this.clearProgressionTarget(
       transaction,
@@ -2004,6 +2073,43 @@ export class MatchesService {
       this.getLoserTeamId(updated),
     );
     await this.resolveProgressionWalkovers(transaction, [updated.winnerToMatchId, updated.loserToMatchId]);
+  }
+
+  private async invalidateQuarterfinalDescendants(transaction: Prisma.TransactionClient, previous: Match, updated: Match) {
+    if (previous.status !== MatchStatus.FINISHED || previous.winnerId === updated.winnerId && previous.winnerTeamId === updated.winnerTeamId && previous.status === updated.status) return;
+    const graph = await transaction.match.findMany({ where: { eventId: previous.eventId, categoryId: previous.categoryId }, include: { draw: true } });
+    const selected = graph.filter((match) => match.draw?.type === DrawType.REPECHAGE_QUARTERFINALS);
+    const selectedIds = new Set(selected.map((match) => match.id));
+    const mainIds = new Set(graph.filter((match) => match.loserToMatchId && selectedIds.has(match.loserToMatchId)).map((match) => match.drawId));
+    if (!selectedIds.has(previous.id) && !mainIds.has(previous.drawId)) return;
+    const visited = new Set<string>();
+    const invalidate = async (id: string | null) => {
+      if (!id || visited.has(id)) return;
+      visited.add(id);
+      await transaction.$queryRaw`SELECT id FROM "Match" WHERE id = ${id} FOR UPDATE`;
+      const target = await transaction.match.findUnique({ where: { id } });
+      if (!target) return;
+      for (const [nextId, side] of [[target.winnerToMatchId, target.winnerToSide], [target.loserToMatchId, target.loserToSide]]) {
+        await invalidate(nextId);
+        if (nextId && side) await transaction.match.update({ where: { id: nextId },
+          data: side === BracketSide.ATHLETE1 ? { athlete1Id: null, team1Id: null } : { athlete2Id: null, team2Id: null } });
+      }
+      const after = await transaction.match.update({ where: { id }, data: {
+        status: MatchStatus.SCHEDULED, resultStatus: ResultStatus.DRAFT, winnerId: null, winnerTeamId: null, winMethod: null,
+        athlete1Score: 0, athlete2Score: 0, athlete1Advantages: 0, athlete2Advantages: 0, athlete1Penalties: 0, athlete2Penalties: 0,
+        resultData: Prisma.DbNull, resultVersion: { increment: 1 }, resultEnteredAt: null, resultEnteredBy: null,
+        refereeConfirmedAt: null, refereeConfirmedBy: null, approvedAt: null, approvedBy: null,
+        resultPublishedAt: null, resultPublishedBy: null, resultLockedAt: null, resultLockedBy: null,
+      } });
+      await transaction.resultRevision.create({ data: { matchId: id, version: after.resultVersion,
+        status: ResultStatus.DRAFT, action: 'INVALIDATE_PROGRESSION',
+        reason: `Kết quả trận nguồn #${previous.matchNumber || previous.id} thay đổi`,
+        actorUserId: updated.resultEnteredBy, before: this.json(target),
+        after: { winnerId: null, resultStatus: ResultStatus.DRAFT },
+      } });
+    };
+    await invalidate(previous.winnerToMatchId);
+    await invalidate(previous.loserToMatchId);
   }
 
   private async resolveProgressionWalkovers(transaction: Prisma.TransactionClient, targetIds: Array<string | null>) {

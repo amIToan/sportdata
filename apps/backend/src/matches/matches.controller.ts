@@ -13,10 +13,12 @@ import {
   UseGuards,
   Req,
   Sse,
+  StreamableFile,
 } from '@nestjs/common';
 import { defer, switchMap } from 'rxjs';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { MatchesService } from './matches.service';
+import { MatchExportService } from './match-export.service';
 import { CreateMatchDto } from './dto/create-match.dto';
 import { UpdateMatchDto } from './dto/update-match.dto';
 import { QueryMatchDto } from './dto/query-match.dto';
@@ -36,7 +38,17 @@ export class MatchesController {
   constructor(
     private readonly matchesService: MatchesService,
     private readonly publicEventStream: PublicEventStreamService,
+    private readonly matchExport: MatchExportService,
   ) {}
+
+  @Get('event/:eventId/export/matches.csv')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export the match table columns across all filtered pages' })
+  async exportMatches(@Param('eventId') eventId: string, @Query() query: QueryMatchDto) {
+    return new StreamableFile(await this.matchExport.csv(eventId, query), {
+      type: 'text/csv; charset=utf-8', disposition: 'attachment; filename="sportdata-matches.csv"',
+    });
+  }
 
   @Sse('event/:eventId/stream')
   @ApiOperation({ summary: 'Subscribe to public event schedule changes' })
@@ -83,8 +95,8 @@ export class MatchesController {
     description: 'Returns match counts by date and the first live match without loading full match records.',
   })
   @ApiParam({ name: 'eventId', type: String, description: 'Event ID' })
-  findScheduleSummary(@Param('eventId') eventId: string) {
-    return this.matchesService.findScheduleSummary(eventId);
+  findScheduleSummary(@Param('eventId') eventId: string, @Query() query: QueryMatchDto) {
+    return this.matchesService.findScheduleSummary(eventId, query.hideByes === 'true');
   }
 
   @Get('event/:eventId/category/:categoryId/draws')

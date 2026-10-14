@@ -52,6 +52,43 @@ try{
  await assert.rejects(service.previewCorrection(root.id,'test-admin',{...payload,expectedVersion:saved.resultVersion,athlete1Score:10,winnerId:athletes[0].id}),error=>error.getStatus()===409);
  assert.deepEqual(await db.match.findMany({where:{eventId:event.id},orderBy:{id:'asc'}}),blockedBefore);
  assert.equal(await db.resultRevision.count(),1);
+ // Full quarterfinal-repechage tree: correct a QF after all medal results exist.
+ for (const name of ['E', 'F', 'G', 'H']) athletes.push(await db.athlete.create({ data: {
+  firstName: name, lastName: 'Test', fullName: `Athlete ${name}`, gender: 'MALE', countryId: country.id,
+ } }));
+ const generator = new MatchesService(db);
+ const entries = athletes.map(a => ({ id: a.id, athleteId: a.id, seed: null, athlete: a }));
+ const plan = generator.buildDrawPlan({ event, category, eligibleEntries: entries, entries, fops: [] },
+  { type: 'REPECHAGE_QUARTERFINALS', athleteIds: athletes.map(a => a.id), startMatchNumber: 10 }, []);
+ for (const draw of plan.draws) await db.draw.create({ data: { ...draw, eventId: event.id, categoryId: category.id } });
+ await db.match.createMany({ data: plan.matches });
+ for (const match of plan.matches) {
+  const current = await db.match.findUnique({ where: { id: match.id } });
+  if (current.matchType === 'SEMIFINAL' && current.bracketPosition === 0) {
+   const rep = await db.match.findFirst({ where: { drawId: plan.draws[1].id, round: 1 } });
+   await assert.rejects(service.enter(rep.id, 'test-admin', { expectedVersion: rep.resultVersion,
+    winnerId: rep.athlete1Id, winMethod: 'POINTS' }), /bán kết/);
+  }
+  const result = await service.enter(current.id, 'test-admin', { expectedVersion: current.resultVersion,
+   winnerId: current.athlete1Id, winMethod: 'POINTS', athlete1Score: 10, athlete2Score: 0 });
+  await service.confirm(current.id, 'test-admin', result.resultVersion);
+ }
+ const quarterfinal = await db.match.findUnique({ where: { id: plan.matches[0].id } });
+ const correction = { expectedVersion: quarterfinal.resultVersion, winnerId: quarterfinal.athlete2Id,
+  winMethod: 'POINTS', athlete1Score: 0, athlete2Score: 10, reason: 'Correct quarterfinal winner' };
+ const playedTree = await db.match.findMany({ where: { drawId: { in: plan.draws.map(d => d.id) } }, orderBy: { id: 'asc' } });
+ const qfPreview = await service.previewCorrection(quarterfinal.id, 'test-admin', correction);
+ assert.equal(qfPreview.changes.length, 5);
+ assert.deepEqual(await db.match.findMany({ where: { drawId: { in: plan.draws.map(d => d.id) } }, orderBy: { id: 'asc' } }), playedTree);
+ await service.enter(quarterfinal.id, 'test-admin', { ...correction, progressionToken: qfPreview.token });
+ const invalidated = await db.resultRevision.findMany({ where: { action: 'INVALIDATE_PROGRESSION' } });
+ assert.equal(invalidated.length, 5);
+ for (const revision of invalidated) {
+  const match = await db.match.findUnique({ where: { id: revision.matchId } });
+  assert.equal(match.status, 'SCHEDULED'); assert.equal(match.resultStatus, 'DRAFT');
+  assert.equal(match.winnerId, null); assert.equal(match.resultData, null); assert.equal(match.athlete1Score, 0);
+ }
+ console.log('PASS PostgreSQL quarterfinal correction: five downstream results cleared, audited and preview rollback verified.');
  console.log('PASS PostgreSQL result correction: preview rollback, atomic winner/loser apply, audit preservation and rejection when the next match is running.');
 }finally{
  await db.$disconnect();

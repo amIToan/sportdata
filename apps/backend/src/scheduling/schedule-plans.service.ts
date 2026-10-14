@@ -54,7 +54,7 @@ export class SchedulePlansService {
   private async snapshot(db: Prisma.TransactionClient | PrismaService, eventId: string): Promise<ScheduleSnapshot> {
     const event = await db.event.findUnique({ where: { id: eventId }, select: {
       id: true, name: true, startDate: true, endDate: true, updatedAt: true,
-      categories: { orderBy: { id: 'asc' } },
+      categories: { include: { sport: { select: { name: true } } }, orderBy: { id: 'asc' } },
       fops: { include: { venue: true }, orderBy: { id: 'asc' } },
     } });
     if (!event) throw new NotFoundException('Không tìm thấy sự kiện.');

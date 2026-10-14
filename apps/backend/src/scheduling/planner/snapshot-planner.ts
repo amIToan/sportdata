@@ -1,3 +1,4 @@
+import { repechageSemifinalIds } from '../../matches/quarterfinal-repechage';
 import { categoryWeight, contentGroupKey, isAutomaticScheduleBye, normalizeMainTree, ScheduleGraphError, scheduleParticipantIds } from './main-tree';
 import { assertScheduleConfig, eventDays, localDay, localInstant, ScheduleConfig } from './schedule-config';
 import { planSchedule } from './schedule-engine';
@@ -100,14 +101,14 @@ export function semanticStages(snapshot: ScheduleSnapshot, categoryId: string) {
       stages.set(id, { ...stage, stageOrder: stage.stageOrder * 10, drawId: draw.id });
     }
   }
-  for (const draw of draws.filter((item) => ['REPECHAGE', 'REPECHAGE_ROUND_OF_16', 'DOUBLE_ELIMINATION'].includes(item.type))) {
+  for (const draw of draws.filter((item) => ['REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'DOUBLE_ELIMINATION'].includes(item.type))) {
     const secondary = matches.filter((match) => match.drawId === draw.id);
     const sourceDraws = draws.filter((item) => item.type === 'MAIN_TREE' && matches.some((match) =>
       match.drawId === item.id && secondary.some((target) => target.id === match.loserToMatchId)));
     if (sourceDraws.length !== 1) throw new ScheduleGraphError('UNSUPPORTED_DRAW_TYPE', 'Không xác định được nhánh chính của nhánh phụ.');
     const size = sourceDraws[0].bracketSize;
-    const repechage = draw.type === 'REPECHAGE' || draw.type === 'REPECHAGE_ROUND_OF_16';
-    const repechageSize = draw.type === 'REPECHAGE_ROUND_OF_16' ? 16 : 32;
+    const repechage = draw.type === 'REPECHAGE' || draw.type === 'REPECHAGE_QUARTERFINALS';
+    const repechageSize = draw.type === 'REPECHAGE_QUARTERFINALS' ? 8 : 32;
     const effectiveSize = repechage ? Math.min(repechageSize, size) : size;
     const rounds = Math.log2(effectiveSize) * 2 - (repechage ? 4 : 2);
     if (!Number.isInteger(rounds) || rounds < 1) throw new ScheduleGraphError('UNSUPPORTED_DRAW_TYPE', 'Khung nhánh phụ chưa được hỗ trợ.');
@@ -123,7 +124,8 @@ export function semanticStages(snapshot: ScheduleSnapshot, categoryId: string) {
       const bronze = repechage && round === rounds;
       const stageKey = grandFinal ? 'GRAND_FINAL' : bronze ? 'BRONZE'
         : `${repechage ? 'REP' : 'LOWER'}_${remaining}_${round % 2 ? 'CONSOLIDATE' : 'JOIN'}`;
-      const stageOrder = grandFinal ? 0 : -Math.log2(remaining) * 10 + (round % 2 ? 2 : 1);
+      const stageOrder = draw.type === 'REPECHAGE_QUARTERFINALS' ? (bronze ? -9 : -18)
+        : grandFinal ? 0 : -Math.log2(remaining) * 10 + (round % 2 ? 2 : 1);
       group.forEach((match) => stages.set(match.id, { stageKey, stageOrder, drawId: draw.id }));
     }
     if (secondary.some((match) => !stages.has(match.id))) throw new ScheduleGraphError('UNSUPPORTED_DRAW_TYPE', 'Nhánh phụ có vòng ngoài mapping được hỗ trợ.');
@@ -217,6 +219,10 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
   const sources = new Map<string, string[]>();
   for (const match of snapshot.matches) for (const target of [match.winnerToMatchId, match.loserToMatchId].filter(Boolean)) {
     sources.set(target, [...(sources.get(target) || []), match.id]);
+  }
+  for (const match of snapshot.matches) {
+    const semifinalIds = repechageSemifinalIds(match, snapshot.matches, snapshot.draws);
+    if (semifinalIds.length) sources.set(match.id, [...(sources.get(match.id) || []), ...semifinalIds]);
   }
   const candidates = participantResolver(snapshot.matches, teams, snapshot.draws);
   const predecessors = (id: string, visiting = new Set<string>()): string[] => {

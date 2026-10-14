@@ -7,7 +7,7 @@ const { semanticStages } = require('./dist/src/scheduling/planner/snapshot-plann
 const { isScoreboardMedalMatch } = require('./dist/src/results/scoreboard-review.js');
 const { preconfigurationDrawTypes } = require('./dist/src/matches/dto/draw-preconfiguration.dto.js');
 const service = new MatchesService({});
-const type = 'REPECHAGE_ROUND_OF_16';
+const type = 'REPECHAGE_QUARTERFINALS';
 assert.ok(preconfigurationDrawTypes.includes(type));
 function planFor(count, drawType = type) {
   const entries = Array.from({ length: count }, (_, i) => ({ id: `e${i}`, athleteId: `a${i}`,
@@ -33,12 +33,12 @@ for (const count of [6, 7, 8, 9, 12, 15, 16, 17, 24, 31, 32, 64]) {
   const mainRounds = rounds(main);
   const lowerRounds = rounds(lower);
   assert.equal(plan.draws[1].type, type);
-  assert.deepEqual(lowerRounds.map(r => r.length), count <= 8 ? [2, 2] : [4, 4, 2, 2]);
+  assert.deepEqual(lowerRounds.map(r => r.length), [2, 2]);
   const bronze = lowerRounds.at(-1);
   assert.equal(bronze.length, 2);
   assert.ok(bronze.every(m => !m.winnerToMatchId && !m.loserToMatchId));
   for (const match of main) {
-    const eligible = ['ROUND_OF_16', 'QUARTERFINAL', 'SEMIFINAL'].includes(match.matchType);
+    const eligible = ['QUARTERFINAL', 'SEMIFINAL'].includes(match.matchType);
     assert.equal(Boolean(match.loserToMatchId), eligible, `${count}: ${match.matchType} loser eligibility`);
   }
   mainRounds.at(-2).forEach((m,i) => {
@@ -88,10 +88,68 @@ for (const count of [6, 7, 8, 9, 12, 15, 16, 17, 24, 31, 32, 64]) {
   assert.equal(new Set(medalists).size, 4, 'gold, silver and two different bronze winners');
   assert.ok(medalists.every(Boolean));
   for (const m of bronze) assert.equal(losses.get(byId.get(m.id).winnerId), 1, 'bronze winner lost exactly once');
-  if (count === 16) assert.equal(played, 27, '15 main + 4 first repechage + 4 joins + 2 consolidation + 2 bronze');
+  if (count === 8) assert.equal(played, 11, '4 quarterfinals + 2 semifinals + final + 2 repechage + 2 bronze');
+  if (count === 16) assert.equal(played, 19, '15 main + 2 repechage + 2 bronze');
 }
 // Existing Repechage still admits round-of-32 losers.
 const legacy = planFor(32, 'REPECHAGE');
 assert.ok(legacy.matches.filter(m => m.matchType === 'ROUND_OF_32').every(m => m.loserToMatchId));
 assert.equal(legacy.matches.filter(m => m.drawId === legacy.draws[1].id).length, 28);
-console.log('PASS: Repechage 1/8 fallback, byes, 16/32/64 topology, immediate loser progression, cross bronze, medals and scheduling.');
+console.log('PASS: quarterfinal repechage, byes, 8/16/32/64 topology, cross bronze, medals and scheduling.');
+
+// Client example, including confirmation gates and corrections after medals.
+const example = planFor(8);
+const mainRounds = rounds(example.matches.filter(m => m.drawId === example.draws[0].id));
+const repRounds = rounds(example.matches.filter(m => m.drawId === example.draws[1].id));
+const [qf, sf, [final]] = mainRounds;
+const [rep, bronze] = repRounds;
+qf.forEach((m, i) => { m.athlete1Id = String(i * 2 + 1); m.athlete2Id = String(i * 2 + 2); });
+const byId = new Map(example.matches.map(m => [m.id, { ...m, resultStatus: 'DRAFT', resultVersion: 0,
+  draw: example.draws.find(d => d.id === m.drawId) }]));
+const revisions = [];
+function matchesWhere(m, where) {
+  return Object.entries(where).every(([k, v]) => k === 'OR' ? v.some(clause => matchesWhere(m, clause)) : m[k] === v);
+}
+function applyData(m, data) {
+  for (const [k, v] of Object.entries(data)) m[k] = v && typeof v === 'object' && 'increment' in v ? m[k] + v.increment : v;
+  return m;
+}
+const db = { $queryRaw: async () => [], draw: { findUnique: async ({ where }) => example.draws.find(d => d.id === where.id) },
+  resultRevision: { create: async ({ data }) => revisions.push(data) }, match: {
+    findUnique: async ({ where }) => byId.get(where.id),
+    findMany: async ({ where }) => [...byId.values()].filter(m => matchesWhere(m, where)),
+    update: async ({ where, data }) => applyData(byId.get(where.id), data),
+    updateMany: async ({ where, data }) => { const rows = [...byId.values()].filter(m => matchesWhere(m, where)); rows.forEach(m => applyData(m, data)); return { count: rows.length }; },
+  } };
+async function win(match, winnerId) {
+  const m = byId.get(match.id); const before = { ...m };
+  assert.ok([m.athlete1Id, m.athlete2Id].includes(winnerId));
+  Object.assign(m, { status: 'FINISHED', resultStatus: 'REFEREE_CONFIRMED', winnerId });
+  await service.syncProgression(db, before, m);
+}
+for (let i = 0; i < qf.length; i++) await win(qf[i], String(i * 2 + 1));
+assert.deepEqual(rep.map(m => [byId.get(m.id).athlete1Id, byId.get(m.id).athlete2Id]), [['2', '4'], ['6', '8']]);
+for (const m of rep) await assert.rejects(service.assertRepechageReady(db, byId.get(m.id)), /bán kết/);
+await win(sf[0], '1');
+await assert.rejects(service.assertRepechageReady(db, byId.get(rep[0].id)), /bán kết/);
+await win(sf[1], '5');
+byId.get(sf[1].id).resultStatus = 'ENTERED';
+await assert.rejects(service.assertRepechageReady(db, byId.get(rep[0].id)), /xác nhận/);
+byId.get(sf[1].id).resultStatus = 'REFEREE_CONFIRMED';
+for (const m of rep) await service.assertRepechageReady(db, byId.get(m.id));
+await win(rep[0], '2'); await win(rep[1], '6');
+assert.deepEqual([byId.get(final.id).athlete1Id, byId.get(final.id).athlete2Id], ['1', '5']);
+assert.deepEqual(bronze.map(m => [byId.get(m.id).athlete1Id, byId.get(m.id).athlete2Id]), [['2', '7'], ['6', '3']]);
+await win(final, '1'); await win(bronze[0], '2'); await win(bronze[1], '6');
+await win(qf[0], '2');
+for (const m of [sf[0], final, rep[0], ...bronze]) {
+  const reset = byId.get(m.id);
+  assert.equal(reset.status, 'SCHEDULED'); assert.equal(reset.resultStatus, 'DRAFT'); assert.equal(reset.winnerId, null);
+}
+assert.equal(byId.get(sf[0].id).athlete1Id, '2');
+assert.equal(byId.get(rep[0].id).athlete1Id, '1');
+assert.equal(byId.get(sf[1].id).winnerId, '5', 'unaffected semifinal retains result');
+assert.equal(byId.get(rep[1].id).winnerId, '6', 'unaffected repechage retains result');
+assert.equal(revisions.length, 5, 'invalidated results remain auditable');
+await assert.rejects(service.assertRepechageReady(db, byId.get(rep[0].id)), /bán kết/);
+console.log('PASS: exact 1–8 client example, both semifinal confirmation gates, and correction invalidation after medal results.');

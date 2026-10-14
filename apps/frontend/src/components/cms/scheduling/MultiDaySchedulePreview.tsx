@@ -60,11 +60,11 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
     <Collapse items={[...groups.entries()].map(([key, items]) => { const first = items[0]; const full = allGroup(first);
       const match = details.get(first.matchId);
       const next = full.find((item: any) => item.localDate > selectedDay);
-      return { key, label: <span>{config.blocks.findIndex((block) => block.id === first.blockId) + 1}. {stageLabel(first.stageKey, match?.round)} · {match?.categoryName} · {items.length}/{full.length} trận hôm nay {next && `· tiếp tục ${next.localDate}`}</span>,
+      return { key, label: <span>{stageLabel(first.stageKey, match?.round)} · {match?.categoryName} · {items.length}/{full.length} trận hôm nay {next && `· tiếp tục ${next.localDate}`}</span>,
         children: <div className="space-y-3">
           {canEdit && <Button disabled={Boolean(query)} onClick={() => editOrder(items)}>Đổi thứ tự toàn bộ nhóm ({full.length} trận)</Button>}
           {items.map((item: any) => { const detail = details.get(item.matchId); return <div key={item.matchId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
-            <div><strong>STT {item.chainSequence} · Trận #{detail?.matchNumber || item.matchId}</strong><div>{localTime(item.start, config.timezone)}–{localTime(item.end, config.timezone)} · {proposal.fops?.find((fop: any) => fop.id === item.fopId)?.name || 'Thảm đã chọn'}</div>
+            <div><strong>Trận {item.chainSequence} · #{detail?.matchNumber || item.matchId}</strong><div>{localTime(item.start, config.timezone)}–{localTime(item.end, config.timezone)} · {proposal.fops?.find((fop: any) => fop.id === item.fopId)?.name || 'Thảm đã chọn'}</div>
               <div>{[...(detail?.participants || []), ...(detail?.sources || [])].join(' · ') || 'Chờ xác định VĐV'}</div></div>
             <Space wrap>{detail?.status && <Tag>{({ SCHEDULED: 'Chưa đấu', RUNNING: 'Đang thi đấu', FINISHED: 'Đã kết thúc', CANCELLED: 'Đã hủy' } as Record<string, string>)[detail.status] || detail.status}</Tag>}{detail?.immutable && <Tag color="gold">Đã đấu / đã khóa</Tag>}
               {canEdit && <><Button disabled={detail?.immutable} onClick={() => setMoving({ ...item, pin: false })}>Dời từ đây</Button><Button disabled={detail?.immutable} onClick={() => setMoving({ ...item, pin: true })}>Cố định giờ</Button></>}

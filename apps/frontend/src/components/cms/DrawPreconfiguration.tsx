@@ -27,7 +27,7 @@ type Configuration = {
 type Props = {
   event: any;
   categoryId: string;
-  drawType: 'MAIN_TREE' | 'DOUBLE_ELIMINATION' | 'REPECHAGE' | 'REPECHAGE_ROUND_OF_16' | 'ROUND_ROBIN_POOL';
+  drawType: 'MAIN_TREE' | 'DOUBLE_ELIMINATION' | 'REPECHAGE' | 'REPECHAGE_QUARTERFINALS' | 'ROUND_ROBIN_POOL';
   actorId: string;
   entries: any[];
   name?: string;
@@ -56,7 +56,7 @@ export function DrawPreconfiguration({ event, categoryId, drawType, actorId, ent
   const partial = pairs.some((pair) => !pair.entry1Id || !pair.entry2Id);
   const busy = saving || previewing || isLoading || !!error;
   const minimumEntries = drawType === 'DOUBLE_ELIMINATION' ? 4 : 2;
-  const isRepechage = drawType === 'REPECHAGE' || drawType === 'REPECHAGE_ROUND_OF_16';
+  const isRepechage = drawType === 'REPECHAGE' || drawType === 'REPECHAGE_QUARTERFINALS';
   const usesRoundRobin = drawType === 'ROUND_ROBIN_POOL' || (isRepechage && entries.length < 6);
   const stale = !!data && (data.stale || data.name !== name);
 

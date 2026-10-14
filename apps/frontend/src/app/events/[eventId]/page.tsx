@@ -46,6 +46,7 @@ interface Match {
   categoryId: string;
   matchNumber?: number | null;
   fop?: string | null;
+  fopRecord?: { name: string } | null;
   matchDate: string;
   startTime?: string | null;
   athlete1?: MatchAthlete | null;
@@ -204,7 +205,7 @@ export default function EventDetailPage() {
     fetcher,
   );
   const { data: scheduleSummary, isLoading: summaryLoading, mutate: mutateScheduleSummary } = useSWR<ScheduleSummary>(
-    eventId ? `/matches/event/${eventId}/schedule-summary` : null,
+    eventId ? `/matches/event/${eventId}/schedule-summary?hideByes=true` : null,
     scheduleFetcher,
     { refreshInterval: scheduleRefreshInterval },
   );
@@ -237,6 +238,8 @@ export default function EventDetailPage() {
       eventId,
       pagination: 'cursor',
       limit: '50',
+      hideByes: 'true',
+      matchNumberOrder: 'asc',
     });
     if (pageIndex > 0 && previousPage?.meta.nextCursor) {
       query.set('cursor', previousPage.meta.nextCursor);
@@ -336,7 +339,7 @@ export default function EventDetailPage() {
     }
   }, [filteredCategories, selectedCategoryId]);
 
-  const totalMatches = event?._count?.matches ?? scheduleSummary?.total ?? 0;
+  const totalMatches = scheduleSummary?.total ?? event?._count?.matches ?? 0;
   const liveMatchTarget = scheduleSummary?.liveMatch;
   const [pendingLiveMatchId, setPendingLiveMatchId] = useState<string>();
   const hasLiveMatches = Boolean(liveMatchTarget);
@@ -609,7 +612,7 @@ export default function EventDetailPage() {
                   categoryId={match.categoryId}
                   categoryName={match.category?.name}
                   matchNumber={match.matchNumber}
-                  fop={match.fop}
+                  fop={match.fopRecord?.name || match.fop}
                   matchDate={match.matchDate}
                   startTime={match.startTime}
                   athlete1={match.athlete1}
