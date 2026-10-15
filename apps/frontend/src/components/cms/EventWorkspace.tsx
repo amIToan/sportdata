@@ -60,6 +60,7 @@ import {
 } from 'lucide-react';
 import { api, fetcher } from '@/lib/api';
 import { EventParticipationTickets } from './EventParticipationTickets';
+import { EventPersonnelTab } from './EventPersonnelTab';
 import { optimizeRegistrationMedia } from '@/lib/registration-media';
 import { MatchSchedulingWorkspace } from './scheduling/MatchSchedulingWorkspace';
 import { navigateSchedule } from './scheduling/schedule-ui';
@@ -163,7 +164,7 @@ const paymentProviderOptions = [
   { value: 'BANK_QR', label: 'Chuyển khoản VietQR' },
 ];
 
-const eventTabKeys = ['overview', 'registrations', 'fops', 'matches', 'payment', 'ticket', 'bracket'] as const;
+const eventTabKeys = ['overview', 'registrations', 'personnel', 'fops', 'matches', 'payment', 'ticket', 'bracket'] as const;
 type EventTabKey = typeof eventTabKeys[number];
 
 function SeedInput({ value, disabled, onSave }: { value?: number | null; disabled?: boolean; onSave: (value: number | null) => void }) {
@@ -336,6 +337,11 @@ export function EventWorkspace({ event, onRefresh }: EventWorkspaceProps) {
           key: 'registrations',
           label: <span className="flex items-center gap-2"><TicketCheck className="h-4 w-4" />Đăng ký thi đấu</span>,
           children: <RegistrationsTab event={event} canOperate={canOperate} canConfirmPayment={canConfirmPayment} />,
+        },
+        {
+          key: 'personnel',
+          label: <span className="flex items-center gap-2"><UserRound className="h-4 w-4" />Danh sách Quản lý</span>,
+          children: <EventPersonnelTab event={event} canOperate={canOperate} />,
         },
         {
           key: 'fops',

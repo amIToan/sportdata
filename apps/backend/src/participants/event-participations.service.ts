@@ -10,6 +10,11 @@ import { AthleteIdentityService } from '../athletes/athlete-identity.service';
 import type { ImageVariant } from '../storage/image-variant';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { registrationMediaState } from './registration-media-state';
+import { AdminEventParticipationDto } from './dto/admin-event-participation.dto';
+import { accountProfileMediaTypes, selectAccountProfileSource, usableAccountMedia } from './participant-account-profile';
+import { registrationMediaSelect } from './registration-media-state';
+import * as bcrypt from 'bcrypt';
+import { AccountVerificationStatus, SportDataAccountType } from '@prisma/client';
 
 const registrationRoles: EventParticipationRole[] = [EventParticipationRole.REFEREE, EventParticipationRole.TEAM_LEADER, EventParticipationRole.COACH];
 const federationRequiredRoles: EventParticipationRole[] = [EventParticipationRole.TEAM_LEADER];
@@ -35,18 +40,74 @@ export class EventParticipationsService {
     private readonly settings: SystemSettingsService,
   ) {}
 
-  async create(dto: CreateEventParticipationDto, accountId?: string) {
+  async createAdmin(dto: AdminEventParticipationDto, actor: string) {
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const event = await transaction.event.findUnique({ where: { id: dto.eventId },
+          select: { id: true, participatingFederations: { select: { id: true } } } });
+        if (!event) throw new NotFoundException('Không tìm thấy sự kiện');
+        const account = await transaction.participantAccount.findUnique({ where: { id: dto.accountId }, include: {
+          media: { select: registrationMediaSelect },
+          athlete: { select: { identity: { select: { cccdEncrypted: true, passportEncrypted: true } }, media: { select: registrationMediaSelect } } },
+          eventParticipations: { orderBy: { createdAt: 'desc' }, select: { identityType: true, documentEncrypted: true, media: { select: registrationMediaSelect } } },
+        } });
+        if (!account?.isActive) throw new BadRequestException('Tài khoản không tồn tại hoặc đã ngừng hoạt động');
+        if (!account.accountTypes.includes(dto.role as any) && account.accountType !== dto.role as any) {
+          throw new BadRequestException('Vai trò đăng ký không phù hợp với tài khoản');
+        }
+        if (account.displayName.trim().length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email)) {
+          throw new BadRequestException('Hồ sơ cần họ tên và email hợp lệ');
+        }
+        const federationId = dto.federationId || account.federationId;
+        if (dto.role === 'TEAM_LEADER' && !federationId) throw new BadRequestException('Trưởng đoàn cần chọn đơn vị đại diện');
+        if (federationId) {
+          if (!await transaction.federation.findUnique({ where: { id: federationId }, select: { id: true } })) throw new BadRequestException('Đơn vị không tồn tại');
+          if (event.participatingFederations.length && !event.participatingFederations.some((item) => item.id === federationId)) throw new BadRequestException('Đơn vị chưa thuộc danh sách tham gia sự kiện');
+        }
+        const source = selectAccountProfileSource(account);
+        const selectedTypes = accountProfileMediaTypes(source);
+        const media = (source?.media || []).filter((item) => selectedTypes.includes(item.type) && usableAccountMedia(item));
+        const state = registrationMediaState(media, source?.identityType);
+        let validNumber = false;
+        if (source?.documentEncrypted && source.identityType) {
+          try {
+            const number = this.identity.decrypt(source.documentEncrypted, source.identityType);
+            validNumber = source.identityType === 'CCCD' ? /^\d{12}$/.test(number) : /^[A-Z0-9]{5,20}$/i.test(number);
+          } catch { validNumber = false; }
+        }
+        const approved = account.verificationStatus === 'VERIFIED' && state.complete && state.verified && validNumber;
+        const now = new Date();
+        const participation = await transaction.eventParticipation.create({ data: {
+          eventId: event.id, accountId: account.id, role: dto.role,
+          contactName: account.displayName.trim(), contactEmail: account.email.trim().toLowerCase(), contactPhone: account.phone,
+          federationId, identityType: source?.identityType, documentEncrypted: source?.documentEncrypted,
+          referenceCode: `SDP-${now.getUTCFullYear()}-${randomBytes(6).toString('hex').toUpperCase()}`,
+          status: approved ? RegistrationStatus.CONFIRMED : RegistrationStatus.SUBMITTED,
+          ...(approved ? { statusChangedAt: now, statusChangedBy: actor, statusReason: 'CMS: Hồ sơ và giấy tờ đã xác thực' } : {}),
+          media: { create: media.map((item) => ({ type: item.type, storageKey: item.storageKey!, mimeType: item.mimeType,
+            size: item.size, verificationStatus: item.verificationStatus })) },
+        }, include: participationInclude });
+        if (approved) await this.ticketEmailQueue.enqueueTicket(transaction, participation.contactEmail, participation.referenceCode);
+        return { ...this.serialize(participation, true), emailQueued: approved };
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') throw new ConflictException('Nhân sự đã đăng ký vai trò này trong sự kiện');
+      throw error;
+    }
+  }
+
+  async create(dto: CreateEventParticipationDto, accountId?: string, cmsActor?: string) {
     if (!registrationRoles.includes(dto.role)) {
       throw new BadRequestException('Vai trò này không được đăng ký tham gia sự kiện');
     }
     const event = await this.prisma.event.findUnique({ where: { id: dto.eventId }, include: {
       participatingFederations: { select: { id: true } },
     } });
-    if (!event?.isPublished) throw new NotFoundException('Sự kiện không tồn tại hoặc chưa công khai');
+    if (!event || (!cmsActor && !event.isPublished)) throw new NotFoundException('Sự kiện không tồn tại hoặc chưa công khai');
     const now = new Date();
-    if (!event.registrationEnabled) throw new BadRequestException('Sự kiện chưa mở đăng ký');
-    if (event.registrationOpenAt && now < event.registrationOpenAt) throw new BadRequestException('Chưa đến thời gian đăng ký');
-    if (now > (event.registrationCloseAt || event.startDate)) throw new BadRequestException('Đã hết thời gian đăng ký');
+    if (!cmsActor && !event.registrationEnabled) throw new BadRequestException('Sự kiện chưa mở đăng ký');
+    if (!cmsActor && event.registrationOpenAt && now < event.registrationOpenAt) throw new BadRequestException('Chưa đến thời gian đăng ký');
+    if (!cmsActor && now > (event.registrationCloseAt || event.startDate)) throw new BadRequestException('Đã hết thời gian đăng ký');
 
     const account = accountId ? await this.prisma.participantAccount.findUnique({ where: { id: accountId } }) : null;
     if (accountId && !account?.isActive) throw new BadRequestException('Tài khoản không còn hoạt động');
@@ -88,6 +149,7 @@ export class EventParticipationsService {
       throw new BadRequestException('Mỗi tệp tải lên chỉ được sử dụng một lần');
     }
     const autoVerifyIdentity = !(await this.settings.get()).values.identityOcrEnabled;
+    const password = cmsActor ? await bcrypt.hash(randomBytes(32).toString('hex'), 12) : undefined;
     try {
       const participation = await this.prisma.$transaction(async (transaction) => {
         const uploads = await transaction.participantMediaUpload.findMany({ where: {
@@ -116,17 +178,36 @@ export class EventParticipationsService {
         if (consumed.count !== references.length) {
           throw new BadRequestException('Tệp tải lên đã được sử dụng hoặc hết hạn. Vui lòng tải lại tệp.');
         }
-        return transaction.eventParticipation.create({ data: {
-          eventId: event.id, accountId, role: dto.role, contactName, contactEmail,
+        let newAccountId = accountId;
+        if (cmsActor) {
+          if (await transaction.participantAccount.findUnique({ where: { email: contactEmail }, select: { id: true } })) {
+            throw new ConflictException('Email đã có tài khoản. Chọn “Nhân sự đã có” để đăng ký, không tạo lại hồ sơ.');
+          }
+          const newAccount = await transaction.participantAccount.create({ data: {
+            email: contactEmail, displayName: contactName, phone: contactPhone || null, password: password!,
+            accountType: dto.role as unknown as SportDataAccountType, accountTypes: [dto.role as unknown as SportDataAccountType],
+            verificationStatus: AccountVerificationStatus.VERIFIED, federationId: dto.federationId,
+            identityType: dto.identityType, documentEncrypted: identity.cccdEncrypted || identity.passportEncrypted,
+            documentHash: identity.documentHash,
+            media: { create: media },
+          }, select: { id: true } });
+          newAccountId = newAccount.id;
+        }
+        const approved = Boolean(cmsActor && autoVerifyIdentity);
+        const created = await transaction.eventParticipation.create({ data: {
+          eventId: event.id, accountId: newAccountId, role: dto.role, contactName, contactEmail,
           contactPhone: contactPhone || null, federationId: dto.federationId,
           identityType: dto.identityType,
           documentEncrypted: identity.cccdEncrypted || identity.passportEncrypted,
           media: { create: media },
           referenceCode: `SDP-${now.getUTCFullYear()}-${randomBytes(6).toString('hex').toUpperCase()}`,
-          status: RegistrationStatus.SUBMITTED,
+          status: approved ? RegistrationStatus.CONFIRMED : RegistrationStatus.SUBMITTED,
+          ...(approved ? { statusChangedAt: now, statusChangedBy: cmsActor, statusReason: 'CMS: Hồ sơ đầy đủ, không yêu cầu OCR' } : {}),
         }, include: participationInclude });
+        if (approved) await this.ticketEmailQueue.enqueueTicket(transaction, contactEmail, created.referenceCode);
+        return created;
       });
-      return this.serialize(participation);
+      return { ...this.serialize(participation), emailQueued: participation.status === RegistrationStatus.CONFIRMED };
     } catch (error: any) {
       if (error?.code === 'P2002') throw new ConflictException('Bạn đã đăng ký vai trò này trong sự kiện. Vui lòng kiểm tra hồ sơ đã gửi.');
       throw error;

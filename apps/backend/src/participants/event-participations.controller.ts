@@ -8,10 +8,27 @@ import { CreateEventParticipationDto, UpdateEventParticipationStatusDto } from '
 import { EventParticipationsService } from './event-participations.service';
 import { OptionalParticipantAuthGuard } from './optional-participant-auth.guard';
 import { ParticipantAuthGuard } from './participant-auth.guard';
+import { AdminEventParticipationDto } from './dto/admin-event-participation.dto';
 
 @Controller('participant-auth')
 export class EventParticipationsController {
   constructor(private readonly service: EventParticipationsService) {}
+
+  @Post('admin/event-participations')
+  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)
+  createAdmin(@Body() dto: AdminEventParticipationDto,
+    @Req() request: Request & { user?: { email?: string; sub?: string } }) {
+    return this.service.createAdmin(dto, request.user?.email || request.user?.sub || 'CMS');
+  }
+
+  @Post('admin/event-participations/new')
+  @UseGuards(JwtAuthGuard)
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)
+  createNewAdmin(@Body() dto: CreateEventParticipationDto,
+    @Req() request: Request & { user?: { email?: string; sub?: string } }) {
+    return this.service.create(dto, undefined, request.user?.email || request.user?.sub || 'CMS');
+  }
 
   @Post('event-participations')
   @UseGuards(OptionalParticipantAuthGuard)

@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { Alert, Button, Card, Empty, Input, Select, Space, Table, Tag, Typography, type TableProps } from 'antd';
-import { RefreshCw, Search } from 'lucide-react';
+import { Alert, Button, Card, Empty, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
+import { CheckCircle2, Eye, RefreshCw, Search } from 'lucide-react';
 import { ParticipationTicketActions } from '@/components/ParticipationTicketActions';
-import { fetcher } from '@/lib/api';
+import { api, fetcher } from '@/lib/api';
+import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { eventRoleLabel, participationStatusLabels, type EventParticipation } from '@/lib/event-participation';
 
 const ticketRoleOptions = [
@@ -22,7 +23,11 @@ function searchableText(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
 }
 
-export function EventParticipationTickets({ eventId }: { eventId: string }) {
+export function EventParticipationTickets({ eventId, canOperate = false }: { eventId: string; canOperate?: boolean }) {
+  const toast = useSportDataToast();
+  const [review, setReview] = useState<EventParticipation>();
+  const [reason, setReason] = useState('CMS: Đã kiểm tra thông tin và giấy tờ');
+  const [saving, setSaving] = useState(false);
   const query = useSWR<EventParticipation[]>(`/participant-auth/admin/event-participations?eventId=${encodeURIComponent(eventId)}`, fetcher);
   const [keyword, setKeyword] = useState('');
   const [role, setRole] = useState<string>();
@@ -66,11 +71,11 @@ export function EventParticipationTickets({ eventId }: { eventId: string }) {
     { title: 'Trạng thái', dataIndex: 'status', width: 150, render: (value: string) => <Tag color={statusColors[value]}>{participationStatusLabels[value] || value}</Tag> },
     { title: 'Mã thẻ', dataIndex: 'referenceCode', width: 210, render: (value: string) => <span className="font-mono text-sm">{value}</span> },
     {
-      title: 'Thao tác', key: 'actions', width: 330,
-      render: (_, item) => <div className="flex flex-wrap items-center gap-2">
+      title: 'Thao tác', key: 'actions', width: 130, fixed: 'right',
+      render: (_, item) => <div className="flex items-center gap-1 whitespace-nowrap">
         {item.status === 'CONFIRMED'
-          ? <ParticipationTicketActions code={item.referenceCode} status={item.status} />
-          : <><span className="text-sm text-slate-500">Chưa phát hành thẻ</span><Button size="small" href={profileHref}>Xem hồ sơ</Button></>}
+          ? <ParticipationTicketActions compact code={item.referenceCode} status={item.status} />
+          : <><Tooltip title="Xem hồ sơ"><Button size="small" aria-label="Xem hồ sơ" icon={<Eye size={16} />} href={profileHref} /></Tooltip>{canOperate && <Tooltip title="Duyệt & cấp vé"><Button size="small" type="primary" aria-label="Duyệt & cấp vé" icon={<CheckCircle2 size={16} />} onClick={() => setReview(item)} /></Tooltip>}</>}
       </div>,
     },
   ];
@@ -127,7 +132,7 @@ export function EventParticipationTickets({ eventId }: { eventId: string }) {
         loading={query.isLoading}
         columns={columns}
         dataSource={filteredParticipations}
-        scroll={{ x: 1290 }}
+        scroll={{ x: 1090 }}
         locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query.error ? 'Danh sách chưa tải được.' : hasFilters ? 'Không có hồ sơ phù hợp với bộ lọc.' : 'Chưa có huấn luyện viên, trọng tài hoặc trưởng đoàn đăng ký sự kiện.'} /> }}
         pagination={{
           current: currentPage,
@@ -141,6 +146,19 @@ export function EventParticipationTickets({ eventId }: { eventId: string }) {
           },
         }}
       />
+      <Modal title="Duyệt hồ sơ và cấp vé" open={Boolean(review)} onCancel={() => { if (!saving) setReview(undefined); }} confirmLoading={saving} okText="Duyệt & cấp vé" cancelText="Hủy" okButtonProps={{ disabled: reason.trim().length < 2 }} onOk={async () => {
+        if (!review) return;
+        setSaving(true);
+        try {
+          await api.patch(`/participant-auth/admin/event-participations/${review.id}/status`, { status: 'CONFIRMED', reason });
+          await query.mutate(); setReview(undefined); toast.success('Đã duyệt và cấp vé; email được đưa vào hàng đợi gửi.');
+        } catch (error: any) { toast.error(error.response?.data?.message || 'Không thể duyệt hồ sơ'); }
+        finally { setSaving(false); }
+      }}>
+        <p className="mb-3">{review?.contactName} · {review && eventRoleLabel(review.role)}</p>
+        <p className="mb-3">Kiểm tra hồ sơ trước khi duyệt. Hệ thống yêu cầu đủ ảnh thẻ và giấy tờ định danh.</p>
+        <Input.TextArea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} aria-label="Lý do duyệt" />
+      </Modal>
     </Card>
   );
 }
