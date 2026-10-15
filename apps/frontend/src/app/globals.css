@@ -2414,8 +2414,31 @@ h3,
   padding-inline: 18px;
 }
 
-.ticket-status-panel {
-  margin-bottom: 0;
+.ticket-page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ticket-page-content > * {
+  margin-block: 0;
+}
+
+.ticket-page-content > .ticket-pass-stage {
+  margin-top: 0;
+}
+
+.ticket-pending-card {
+  width: 100%;
+  max-width: 720px;
+}
+
+.ticket-details .ant-descriptions-item-label {
+  min-width: 120px;
+}
+
+.ticket-details .ant-descriptions-item-content {
+  overflow-wrap: anywhere;
 }
 
 .ticket-status-panel .ant-alert {
@@ -2430,6 +2453,14 @@ h3,
 }
 
 @media (max-width: 640px) {
+  .ticket-page-content {
+    gap: 20px;
+  }
+
+  .ticket-details .ant-descriptions-item-label {
+    min-width: 100px;
+  }
+
   .registration-review-modal .ant-modal-header {
     padding: 20px 20px 0;
   }

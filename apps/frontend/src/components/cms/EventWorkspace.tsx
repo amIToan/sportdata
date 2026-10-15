@@ -134,7 +134,10 @@ type Registration = {
   competitionEntry?: { id: string; seed?: number | null; status: string } | null;
 };
 
-type RegistrationFilters = Partial<Record<'athlete' | 'category' | 'seed' | 'documents' | 'source' | 'payment' | 'ticketCode' | 'status', string>>;
+type RegistrationFilters = Partial<Record<'athlete' | 'organization' | 'category' | 'seed' | 'documents' | 'source' | 'payment' | 'ticketCode' | 'status', string>>;
+
+const registrationOrganization = (item: Registration) => item.submission?.organizationName?.trim()
+  || item.athlete.federation?.name?.trim() || 'VĐV tự do';
 
 type RegistrationIdentityDocument = 'CCCD_FRONT' | 'CCCD_BACK' | 'PASSPORT';
 
@@ -666,6 +669,9 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
       ? { name: sourceRegistration.account.displayName, email: sourceRegistration.account.email, phone: sourceRegistration.account.phone }
       : { name: sourceRegistration?.athlete.fullName, email: sourceRegistration?.athlete.email, phone: sourceRegistration?.athlete.phone };
   const sourceCreatedAt = sourceRegistration?.submission?.createdAt || sourceRegistration?.createdAt;
+  const organizationOptions = useMemo(() => [...new Set(registrations.map(registrationOrganization))]
+    .sort((a, b) => a.localeCompare(b, 'vi'))
+    .map((name) => ({ value: name, label: name })), [registrations]);
   const filteredRegistrations = useMemo(() => {
     const matchesText = (value: string, filter?: string) => !filter || value.toLocaleLowerCase('vi').includes(filter.toLocaleLowerCase('vi'));
     return registrations.filter((item) => {
@@ -679,6 +685,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
         ? [item.submission.type === 'GROUP' ? 'Danh sách đội / CLB' : 'Khách', item.submission.organizationName, item.submission.contactName, item.submission.referenceCode].filter(Boolean).join(' ')
         : 'Tài khoản SportData';
       return matchesText(athleteText, registrationFilters.athlete)
+        && (!registrationFilters.organization || registrationOrganization(item) === registrationFilters.organization)
         && matchesText(sourceText, registrationFilters.source)
         && matchesText(item.ticketCode, registrationFilters.ticketCode)
         && (!registrationFilters.category || item.category.id === registrationFilters.category)
@@ -1030,7 +1037,7 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
           rowKey="id"
           loading={isLoading}
           dataSource={filteredRegistrations}
-          scroll={{ x: 1700 }}
+          scroll={{ x: 1900 }}
           pagination={{ current: registrationPage, defaultPageSize: 15, showSizeChanger: true }}
           locale={{ emptyText: hasRegistrationFilters ? 'Không tìm thấy đăng ký phù hợp. Thử đổi hoặc xóa bộ lọc.' : 'Chưa có vận động viên đăng ký.' }}
           onChange={(pagination, tableFilters, _sorter, extra) => {
@@ -1076,6 +1083,12 @@ function RegistrationsTab({ event, canOperate, canConfirmPayment }: { event: any
                   </div>
                 </div>
               ),
+            },
+            {
+              title: 'Đơn vị',
+              ...columnSelectFilter('organization', 'Lọc theo đơn vị', organizationOptions),
+              width: 200,
+              render: (_, item) => registrationOrganization(item),
             },
             { title: 'Hạng đấu', ...columnSelectFilter('category', 'Hạng đấu', (event.categories || []).map((category: RegistrationCategory) => ({ value: category.id, label: `${category.sport?.name || ''} · ${category.name}` }))), width: 240, render: (_, item) => <div>{renderRegistrationCategory(item)}{item.team && <div className="mt-2 rounded-lg bg-sky-50 p-2 text-xs text-sky-900">
               <strong>{item.team.members.map((member) => member.athlete.fullName).join(' / ')}</strong>

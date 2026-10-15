@@ -1,12 +1,10 @@
 'use client';
 
-import { ToastNotice } from '@/components/ToastNotice';
-
 import Link from 'next/link';
 import { useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
-import { Button, Card, Descriptions, Result, Skeleton, Space, Statistic, Tag } from 'antd';
+import { Alert, Button, Card, Descriptions, Result, Skeleton, Space, Statistic, Tag } from 'antd';
 import { ArrowLeft, CheckCircle2, Download, FileCheck2, Medal, ShieldCheck, Swords, Trophy } from 'lucide-react';
 import { EventParticipationCard } from '@/components/EventParticipationCard';
 import { PaymentCheckout } from '@/components/PaymentCheckout';
@@ -88,8 +86,8 @@ export default function TicketVerificationPage() {
 
   return (
     <main className="ticket-verification-page min-h-screen px-4 py-10 sm:px-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="ticket-page-controls mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="ticket-page-content mx-auto max-w-5xl">
+        <div className="ticket-page-controls flex flex-wrap items-center justify-between gap-3">
           <Link href="/events">
             <Button icon={<ArrowLeft className="h-4 w-4" />}>Sự kiện</Button>
           </Link>
@@ -109,7 +107,7 @@ export default function TicketVerificationPage() {
         </div>
 
         <div className="ticket-page-controls ticket-status-panel">
-          <ToastNotice
+          <Alert
             showIcon
             type={ticket.isValid ? 'success' : ticket.status === 'REJECTED' ? 'error' : 'warning'}
             icon={ticket.isValid ? <CheckCircle2 className="h-5 w-5" /> : undefined}
@@ -130,7 +128,7 @@ export default function TicketVerificationPage() {
           </div>
         ) : (
           <div className="ticket-pass-stage">
-            <Card className="ticket-page-controls border-sky-500/20 text-center">
+            <Card className="ticket-page-controls ticket-pending-card border-sky-500/20 text-center">
               <FileCheck2 className="mx-auto h-10 w-10 text-sky-400" />
               <h2 className="mt-3 text-lg font-bold">Thẻ chưa được phát hành</h2>
               <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
