@@ -37,15 +37,10 @@ const emptyCategory = {
   name: '',
   gender: 'MALE',
   format: 'HEAD_TO_HEAD',
-  laneCount: '',
-  maxEntriesPerCountry: '',
   discipline: 'NEWAZA',
   uniform: 'GI',
   beltLevel: 'OPEN',
   matchDurationSeconds: '300',
-  minAge: '',
-  maxAge: '',
-  minWeight: '',
   maxWeight: '',
 };
 const formatOptions = [
@@ -132,15 +127,10 @@ export default function SportsPage() {
           name: category.name,
           gender: category.gender,
           format: category.format || 'HEAD_TO_HEAD',
-          laneCount: category.laneCount == null ? '' : String(category.laneCount),
-          maxEntriesPerCountry: category.maxEntriesPerCountry == null ? '' : String(category.maxEntriesPerCountry),
           discipline: category.discipline || 'NEWAZA',
           uniform: category.uniform || 'GI',
           beltLevel: category.beltLevel || 'OPEN',
           matchDurationSeconds: String(category.matchDurationSeconds || 300),
-          minAge: category.minAge == null ? '' : String(category.minAge),
-          maxAge: category.maxAge == null ? '' : String(category.maxAge),
-          minWeight: category.minWeight == null ? '' : String(category.minWeight),
           maxWeight: category.maxWeight == null ? '' : String(category.maxWeight),
         }
       : emptyCategory);
@@ -269,20 +259,11 @@ export default function SportsPage() {
         sportId: categorySport.id,
         gender: categoryForm.gender,
         format: categoryForm.format,
-        laneCount: categoryForm.laneCount
-          ? Number(categoryForm.laneCount)
-          : editingCategory ? null : undefined,
-        maxEntriesPerCountry: categoryForm.maxEntriesPerCountry
-          ? Number(categoryForm.maxEntriesPerCountry)
-          : editingCategory ? null : undefined,
         discipline: categoryForm.discipline || undefined,
         uniform: categoryForm.uniform || undefined,
         beltLevel: categoryForm.beltLevel || undefined,
         matchDurationSeconds: categoryForm.matchDurationSeconds ? Number(categoryForm.matchDurationSeconds) : undefined,
-        minAge: categoryForm.minAge ? Number(categoryForm.minAge) : undefined,
-        maxAge: categoryForm.maxAge ? Number(categoryForm.maxAge) : undefined,
-        minWeight: categoryForm.minWeight ? Number(categoryForm.minWeight) : undefined,
-        maxWeight: categoryForm.maxWeight ? Number(categoryForm.maxWeight) : undefined,
+        maxWeight: categoryForm.maxWeight !== '' ? Number(categoryForm.maxWeight) : null,
       };
       if (editingCategory) await api.patch(`/categories/${editingCategory.id}`, payload);
       else await api.post('/categories', payload);
@@ -293,6 +274,17 @@ export default function SportsPage() {
       toast.error(requestError.response?.data?.message || 'Không thể tạo hạng đấu.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const updateSortOrder = async (sport: any, sortOrder: number) => {
+    try {
+      await api.patch(`/sports/${sport.id}`, { sortOrder });
+      await mutate();
+      toast.success('Đã cập nhật thứ tự hiển thị bộ môn.');
+    } catch (requestError: any) {
+      toast.error(requestError.response?.data?.message || 'Không thể cập nhật thứ tự hiển thị.');
+      throw requestError;
     }
   };
 
@@ -345,6 +337,7 @@ export default function SportsPage() {
         onDeleteSport={removeSport}
         onDeleteCategory={removeCategory}
         onVisibility={updateVisibility}
+        onSortOrder={updateSortOrder}
         options={{ discipline: disciplineOptions, uniform: uniformOptions, beltLevel: beltOptions, format: formatOptions }}
       />
       <Modal
@@ -590,28 +583,10 @@ export default function SportsPage() {
                 onChange={(format) => setCategoryForm({ ...categoryForm, format })}
               />
             </Field>
-            <NumberField
-              label="Số làn (nếu áp dụng)"
-              value={categoryForm.laneCount}
-              min={2}
-              max={16}
-              onChange={(laneCount) => setCategoryForm({ ...categoryForm, laneCount })}
-            />
-            <NumberField
-              label="Số lượt đăng ký tối đa mỗi quốc gia"
-              value={categoryForm.maxEntriesPerCountry}
-              min={1}
-              max={100}
-              onChange={(maxEntriesPerCountry) => setCategoryForm({ ...categoryForm, maxEntriesPerCountry })}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 md:grid-cols-5">
-            <NumberField label="Tuổi tối thiểu" value={categoryForm.minAge} onChange={(minAge) => setCategoryForm({ ...categoryForm, minAge })} />
-            <NumberField label="Tuổi tối đa" value={categoryForm.maxAge} onChange={(maxAge) => setCategoryForm({ ...categoryForm, maxAge })} />
-            <NumberField label="Cân nặng tối thiểu" value={categoryForm.minWeight} step={0.1} onChange={(minWeight) => setCategoryForm({ ...categoryForm, minWeight })} />
-            <NumberField label="Cân nặng tối đa" value={categoryForm.maxWeight} step={0.1} onChange={(maxWeight) => setCategoryForm({ ...categoryForm, maxWeight })} />
+            <NumberField label="Cân nặng tối đa (kg, tùy chọn)" value={categoryForm.maxWeight} step={0.1} onChange={(maxWeight) => setCategoryForm({ ...categoryForm, maxWeight })} />
             <NumberField label="Thời lượng trận (giây)" value={categoryForm.matchDurationSeconds} onChange={(matchDurationSeconds) => setCategoryForm({ ...categoryForm, matchDurationSeconds })} />
           </div>
+          <p className="mb-4 text-sm text-slate-400">Cân nặng tối đa chỉ dùng để hiển thị thông tin, không giới hạn đăng ký.</p>
           <Button type="primary" htmlType="submit" block loading={saving}>
             {editingCategory ? 'Lưu hạng đấu' : 'Tạo hạng đấu'}
           </Button>

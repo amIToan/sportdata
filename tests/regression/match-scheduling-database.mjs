@@ -233,6 +233,16 @@ try {
     for (const match of shaped.generated.matches) for (const target of [match.winnerToMatchId, match.loserToMatchId].filter(Boolean)) {
       assert.ok(positions.get(match.id) < positions.get(target), `${type}/${size}: dependency inversion`);
     }
+    if (type === 'REPECHAGE' || type === 'REPECHAGE_QUARTERFINALS') {
+      const final = shaped.generated.matches.find(m => m.matchType === 'FINAL');
+      const bronze = shaped.generated.matches.filter(m => m.notes?.startsWith('Generated repechage bronze medal'));
+      assert.equal(sv.assignments.at(-1).matchId, final.id, `${type}/${size}: final is the last bout`);
+      const finalSlot = sv.assignments.find(item => item.matchId === final.id);
+      for (const match of bronze) {
+        assert.ok(positions.get(match.id) < positions.get(final.id), `${type}/${size}: bronze before final`);
+        assert.ok(sv.assignments.find(item => item.matchId === match.id).end <= finalSlot.start, 'bronze finishes before final starts');
+      }
+    }
     if (type === 'REPECHAGE_QUARTERFINALS') {
       const semifinals = shaped.generated.matches.filter(m => m.matchType === 'SEMIFINAL');
       const repechage = shaped.generated.matches.filter(m => m.drawId === shaped.generated.draws[1].id && m.round === 1);
@@ -412,19 +422,21 @@ try {
   assert.equal(await db.event.findUnique({ where: { id: emptyEvent.id } }), null);
   console.log('PASS: event deletion with applied/draft schedules, atomic rollback, image cleanup, shared athlete preservation, event isolation and 404.');
   if (process.env.SCHEDULE_UI === '1' || process.argv.includes('--ui')) {
-    const uiCategory = await fixture(32, 'SHOW', 'MAIN_TREE', independentA);
+    const uiCategory = await fixture(32, 'FULL_CONTACT', 'MAIN_TREE', independentA);
+    const uiAdditionalCategory = await fixture(8, 'FULL_CONTACT', 'MAIN_TREE', independentA);
     const uiSport = await db.sport.create({ data: { name: 'Full Contact tự động', code: 'AUTO_SCHEDULE_UI' } });
     await db.sportSchedulingRule.create({ data: { eventId: independentA.event.id, sportId: uiSport.id,
       matchDurationMinutes: 5, turnaroundMinutes: 0, minRestMinutes: 0, earliestStart: '08:00', latestEnd: '10:30' } });
     // Use a valid individual discipline for the editable UI fixture; team
     // disciplines are exercised separately with actual team entries.
     await db.category.update({ where: { id: uiCategory.category.id }, data: { sportId: uiSport.id, discipline: 'FULL_CONTACT', name: 'Full Contact nam · -56 kg' } });
+    await db.category.update({ where: { id: uiAdditionalCategory.category.id }, data: { sportId: uiSport.id, maxWeight: 69, name: 'Full Contact nam · -69 kg' } });
     await db.event.update({ where: { id: independentA.event.id }, data: { name: 'Giải Jujitsu · Kiểm thử lịch thi đấu' } });
     await db.category.update({ where: { id: independentA.category.id }, data: { name: 'GI nam · -56 kg' } });
     await db.category.update({ where: { id: independentB.category.id }, data: { name: 'Fighting nam · -56 kg' } });
     const { runScheduleUi } = await import('./match-scheduling-ui.mjs');
     await runScheduleUi({ apiBase: base, db, eventId: independentA.event.id, token: token(actor), actor,
-      categoryId: uiCategory.category.id, categoryName: 'Full Contact nam · -56 kg' });
+      categoryId: uiCategory.category.id, categoryName: 'Full Contact nam · -56 kg', additionalCategoryName: 'Full Contact nam · -69 kg' });
   }
 } finally {
   if (app) await app.close();

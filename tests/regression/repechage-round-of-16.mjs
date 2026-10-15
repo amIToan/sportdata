@@ -32,6 +32,9 @@ for (const count of [6, 7, 8, 9, 12, 15, 16, 17, 24, 31, 32, 64]) {
   const lower = plan.matches.filter(m => m.drawId === plan.draws[1].id);
   const mainRounds = rounds(main);
   const lowerRounds = rounds(lower);
+  assert.equal(plan.matches.at(-1).id, mainRounds.at(-1)[0].id, 'generated match numbering ends with the final');
+  assert.ok(plan.matches.every(m => m.matchNumber <= mainRounds.at(-1)[0].matchNumber));
+  assert.ok(plan.matches.every(m => +new Date(m.matchDate) <= +new Date(mainRounds.at(-1)[0].matchDate)), 'final is on the last match date');
   assert.equal(plan.draws[1].type, type);
   assert.deepEqual(lowerRounds.map(r => r.length), [2, 2]);
   const bronze = lowerRounds.at(-1);
@@ -49,6 +52,9 @@ for (const count of [6, 7, 8, 9, 12, 15, 16, 17, 24, 31, 32, 64]) {
   const stages = semanticStages(snapshot, 'category');
   assert.equal(stages.size, plan.matches.length);
   assert.ok(bronze.every(m => stages.get(m.id).stageKey === 'BRONZE'));
+  const finalStage = stages.get(mainRounds.at(-1)[0].id);
+  assert.ok(bronze.every(m => stages.get(m.id).stageOrder < finalStage.stageOrder), 'both bronze bouts precede the final');
+  assert.ok(lowerRounds[0].every(m => stages.get(m.id).stageOrder < stages.get(bronze[0].id).stageOrder), 'repechage precedes bronze');
   const corrupted = structuredClone(snapshot);
   const semifinal = corrupted.matches.find(m => m.matchType === 'SEMIFINAL');
   semifinal.loserToMatchId = bronze[semifinal.bracketPosition].id;
