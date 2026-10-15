@@ -107,7 +107,6 @@ const navItems: Array<CmsNavLeaf | CmsNavGroup> = [
     key: 'cms-system',
     icon: <Settings className="h-5 w-5" />,
     children: [
-      { label: 'Tài khoản SportData', key: '/cms/accounts', icon: <User className="h-5 w-5" />, roles: CMS_PAGE_ACCESS['/cms/accounts'] },
       { label: 'Tài khoản CMS', key: '/cms/users', icon: <UserCog className="h-5 w-5" />, roles: CMS_PAGE_ACCESS['/cms/users'] },
       { label: 'Cài đặt hệ thống', key: '/cms/settings', icon: <Settings className="h-5 w-5" />, roles: CMS_PAGE_ACCESS['/cms/settings'] },
     ],
