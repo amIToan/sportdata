@@ -8,6 +8,8 @@ import { api, fetcher } from '@/lib/api';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
 import { AccountAvatar, AccountProfileModal, ProfileCompletionTags, type SportDataAccount } from './SportDataAccountProfile';
 import { EventParticipationTickets } from './EventParticipationTickets';
+import { NonAthleteEventRegistration } from '../NonAthleteEventRegistration';
+import type { ParticipationRole } from '@/lib/event-participation';
 
 const roles = [{ value: 'REFEREE', label: 'Trọng tài' }, { value: 'COACH', label: 'Huấn luyện viên' }, { value: 'TEAM_LEADER', label: 'Trưởng đoàn' }];
 
@@ -21,6 +23,7 @@ export function EventPersonnelTab({ event, canOperate }: { event: any; canOperat
   const [federationId, setFederationId] = useState<string>();
   const [viewing, setViewing] = useState<SportDataAccount>();
   const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState('EXISTING');
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(keyword.trim()), 300);
     return () => window.clearTimeout(timer);
@@ -49,10 +52,12 @@ export function EventPersonnelTab({ event, canOperate }: { event: any; canOperat
       {canOperate && <Button type="primary" icon={<Plus size={16} />} onClick={() => { setAccountId(undefined); setSelected(undefined); setFederationId(undefined); setKeyword(''); setSearch(''); setOpen(true); }}>Đăng ký nhân sự</Button>}
     </div></Card>
     <EventParticipationTickets eventId={event.id} canOperate={canOperate} />
-    <Modal title="Đăng ký nhân sự" width={680} open={open} onCancel={() => { if (!saving) setOpen(false); }} onOk={() => void save()} okText="Xác nhận đăng ký" cancelText="Hủy" confirmLoading={saving} okButtonProps={{ disabled: !accountId || !unitValid || units.isLoading || Boolean(units.error) || (role === 'TEAM_LEADER' && !federationId) }}>
+    <Modal title="Đăng ký nhân sự" width={800} open={open} footer={mode === 'NEW' ? null : undefined} onCancel={() => { if (!saving) setOpen(false); }} onOk={() => void save()} okText="Xác nhận đăng ký" cancelText="Hủy" confirmLoading={saving} okButtonProps={{ disabled: !accountId || !unitValid || units.isLoading || Boolean(units.error) || (role === 'TEAM_LEADER' && !federationId) }}>
       <div className="space-y-4">
         <Typography.Text type="secondary" className="!block">Chọn vai trò và hồ sơ để thêm vào {event.name}.</Typography.Text>
         <div><label className="mb-2 block font-semibold">1. Vai trò tham gia</label><Segmented block disabled={saving} value={role} options={roles} onChange={(value) => { setRole(String(value)); setAccountId(undefined); setSelected(undefined); setFederationId(undefined); setKeyword(''); setSearch(''); }} /></div>
+        <Segmented block disabled={saving} value={mode} options={[{ value: 'EXISTING', label: 'Nhân sự đã có' }, { value: 'NEW', label: 'Đăng ký nhân sự mới' }]} onChange={(value) => setMode(String(value))} />
+        {mode === 'NEW' ? <NonAthleteEventRegistration key={`${event.id}:${role}`} cms embedded eventId={event.id} role={role as ParticipationRole} onBusy={setSaving} onCreated={() => { setOpen(false); void mutate(`/participant-auth/admin/event-participations?eventId=${encodeURIComponent(event.id)}`); }} /> : <>
         {accounts.error && <Alert type="error" title="Không tải được nhân sự" action={<Button onClick={() => void accounts.mutate()}>Thử lại</Button>} />}
         <div><label htmlFor="event-personnel-picker" className="mb-2 block font-semibold">2. Chọn nhân sự</label>
           <Select id="event-personnel-picker" size="large" disabled={saving} allowClear showSearch filterOption={false} onSearch={setKeyword} className="w-full" placeholder="Nhập tên, email hoặc số điện thoại để tìm…" loading={accounts.isLoading} value={accountId}
@@ -68,6 +73,7 @@ export function EventPersonnelTab({ event, canOperate }: { event: any; canOperat
         <div><label htmlFor="event-personnel-unit" className="mb-2 block font-semibold">3. Đơn vị đại diện{role === 'TEAM_LEADER' ? ' *' : ' (không bắt buộc)'}</label><Select id="event-personnel-unit" disabled={saving} loading={units.isLoading} allowClear showSearch optionFilterProp="label" className="w-full" placeholder="Chọn liên đoàn / CLB / đơn vị" value={federationId} onChange={setFederationId} options={availableUnits.map((unit) => ({ value: unit.id, label: unit.name }))} /></div>
         {(!unitValid || units.error) && <Alert type="warning" showIcon title={units.error ? 'Không tải được đơn vị. Vui lòng thử lại.' : 'Đơn vị trong hồ sơ chưa thuộc sự kiện. Chọn lại đơn vị đại diện.'} action={units.error ? <Button onClick={() => void units.mutate()}>Thử lại</Button> : undefined} />}
         <Alert type="info" showIcon title="Cấp vé sau khi đăng ký" description="Hệ thống tự duyệt và gửi vé qua email khi hồ sơ đủ điều kiện. Hồ sơ cần bổ sung hoặc xác thực giấy tờ sẽ được lưu ở trạng thái chờ duyệt." />
+        </>}
       </div>
     </Modal>
     <AccountProfileModal account={viewing} open={Boolean(viewing)} onClose={() => setViewing(undefined)} />
