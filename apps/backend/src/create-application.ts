@@ -12,7 +12,15 @@ export async function configureApplication(app: INestApplication) {
   const isEventStream = (request: Request) => /^\/api\/matches\/event\/[^/]+\/stream$/.test(request.path);
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
   // Large events can have individual award text on thousands of certificates.
-  app.use('/api/events/:eventId/certificates', json({ limit: '6mb' }));
+  const certificateJson = json({ limit: '6mb' });
+  // Nest detects existing parsers by function name, regardless of their route.
+  // Registering jsonParser directly here disables JSON parsing for every other
+  // endpoint. Keep the larger certificate limit behind a named wrapper.
+  app.use('/api/events/:eventId/certificates', function certificateJsonParser(
+    request: Request, response: Response, next: NextFunction,
+  ) {
+    certificateJson(request, response, next);
+  });
   app.use(
     "/api/system-backup/import/uploads",
     raw({ type: "application/octet-stream", limit: "4mb" }),
