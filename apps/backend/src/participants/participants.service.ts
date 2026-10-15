@@ -2753,9 +2753,6 @@ export class ParticipantsService {
     if (athlete.weight && category.minWeight !== null && athlete.weight < category.minWeight) {
       throw new BadRequestException(`Cân nặng tối thiểu của hạng đấu là ${category.minWeight} kg`);
     }
-    if (athlete.weight && category.maxWeight !== null && athlete.weight > category.maxWeight) {
-      throw new BadRequestException(`Cân nặng tối đa của hạng đấu là ${category.maxWeight} kg`);
-    }
   }
 
   private ageAt(birthDate: Date, date: Date) {

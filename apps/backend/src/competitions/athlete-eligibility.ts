@@ -9,7 +9,6 @@ export function assertAthleteEligibility(
     throw new BadRequestException('Giới tính vận động viên không đáp ứng điều kiện hạng mục');
   }
   if (athlete.weight != null && category.minWeight !== null && athlete.weight < category.minWeight) throw new BadRequestException('Vận động viên chưa đạt cân nặng tối thiểu');
-  if (athlete.weight != null && category.maxWeight !== null && athlete.weight > category.maxWeight) throw new BadRequestException('Vận động viên vượt quá cân nặng tối đa');
   if (category.minAge !== null || category.maxAge !== null) {
     if (!athlete.birthDate) throw new BadRequestException('Hạng mục này bắt buộc có ngày sinh vận động viên');
     let age = referenceDate.getUTCFullYear() - athlete.birthDate.getUTCFullYear();

@@ -1113,8 +1113,10 @@ export class MatchesService {
       if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
       return value;
     };
+    const type = (options as { type?: DrawType })?.type;
     return createHash('sha256').update(JSON.stringify(canonical({
-      algorithm: (options as { type?: string })?.type === DrawType.REPECHAGE_QUARTERFINALS ? 4 : 3, event: input.event, category: input.category, entries: input.entries, fops: input.fops, pairs, options,
+      algorithm: type === DrawType.REPECHAGE || type === DrawType.REPECHAGE_QUARTERFINALS ? 5 : 3,
+      event: input.event, category: input.category, entries: input.entries, fops: input.fops, pairs, options,
     }))).digest('hex');
   }
 
@@ -1242,8 +1244,17 @@ export class MatchesService {
       draws.push({ id: loserId, name: `${baseName} - ${isRepechage ? (type === DrawType.REPECHAGE_QUARTERFINALS ? 'Quaterfinals Repechage' : 'REPECHAGE') : 'DOUBLE-ELIMINATION TREE'}`,
         type, bracketSize: Math.max(2, (isRepechage ? Math.min(type === DrawType.REPECHAGE_QUARTERFINALS ? 8 : 32, size) : size) / 2), sortOrder: 20 });
     }
+    if (isRepechage) {
+      const final = rounds.at(-1)![0];
+      matches.splice(matches.indexOf(final), 1);
+      matches.push(final);
+      matches.forEach((match, index) => { match.matchNumber = (dto.startMatchNumber || 1) + index; });
+    }
     this.resolveGeneratedWalkovers(matches);
     this.assignEvenMatchDates(matches as Array<GeneratedMatch & DateAssignableMatch>, input.event.startDate, input.event.endDate);
+    if (isRepechage) {
+      rounds.at(-1)![0].matchDate = new Date(Math.max(...matches.map((match) => +new Date(match.matchDate))));
+    }
     return { draws, matches, fops, groups: [] as PlannedRoundRobinGroup[], slots: slots.map((athlete) => athlete
       ? input.eligibleEntries.find((entry) => entry.athleteId === athlete.id)!.id : null) };
   }

@@ -22,13 +22,13 @@ export type ExistingDisciplineRegistration = {
   feeAmount: number;
 };
 
-function disciplineKey(category: RegistrationCategory): string {
+export function registrationDisciplineKey(category: RegistrationCategory): string {
   const discipline = category.discipline === 'FULL_CONTACT' ? 'CONTACT' : category.discipline;
   const uniform = discipline === 'NEWAZA' ? category.uniform || 'GI' : '';
   return `${category.sportId}:${discipline || 'DEFAULT'}:${uniform}`;
 }
 
-function disciplineLabel(category: RegistrationCategory): string {
+export function registrationDisciplineLabel(category: RegistrationCategory): string {
   const labels: Record<string, string> = {
     FIGHTING: 'Fighting System',
     DUO: 'Duo System',
@@ -42,7 +42,7 @@ function disciplineLabel(category: RegistrationCategory): string {
 }
 
 export function registrationCategoryLabel(category: RegistrationCategory): string {
-  return `${disciplineLabel(category)} · ${category.name}`;
+  return `${registrationDisciplineLabel(category)} · ${category.name}`;
 }
 
 export function RegistrationDisciplines({ categories, entries, existingRegistrations, onChange, partners = [], onAddPartner, declarantName }: {
@@ -56,14 +56,14 @@ export function RegistrationDisciplines({ categories, entries, existingRegistrat
 }) {
   const groups = new Map<string, { label: string; categories: RegistrationCategory[] }>();
   categories.forEach((category) => {
-    const key = disciplineKey(category);
-    const group = groups.get(key) || { label: disciplineLabel(category), categories: [] };
+    const key = registrationDisciplineKey(category);
+    const group = groups.get(key) || { label: registrationDisciplineLabel(category), categories: [] };
     group.categories.push(category);
     groups.set(key, group);
   });
   const registeredKeys = new Set(existingRegistrations.flatMap((registration) => {
     const category = categories.find((item) => item.id === registration.categoryId);
-    return category ? [disciplineKey(category)] : [];
+    return category ? [registrationDisciplineKey(category)] : [];
   }));
   const selectedKeys = new Set(entries.map((entry) => entry.disciplineKey).filter(Boolean));
   const updateEntry = (index: number, entry: DisciplineEntry) => {

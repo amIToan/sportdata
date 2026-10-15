@@ -59,7 +59,7 @@ export class CreateCategoryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
-  maxWeight?: number;
+  maxWeight?: number | null;
 
   @IsOptional()
   @IsIn(['CAPPED', 'OVER', 'OPEN'])

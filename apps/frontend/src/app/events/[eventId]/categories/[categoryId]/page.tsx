@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { SportdataBracket } from '@/components/brackets/SportdataBracket';
 import { fetcher } from '@/lib/api';
+import { categoryMedalStandings } from '@/lib/category-standings';
 import { cn, formatTime } from '@/lib/utils';
 import { MATCH_STATUS_META, MATCH_TYPE_LABELS, WIN_METHOD_LABELS, labelOf, statusMeta } from '@/lib/vi-labels';
 
@@ -229,7 +230,6 @@ export default function CategoryDetailPage() {
   const standings = standingsResponse?.standings || [];
   const isPointsCategory = ['DUO', 'SHOW'].includes(category?.discipline || '')
     || /\b(DUO|SHOW)\b/i.test(category?.name || '');
-  const finalStandings = standings.slice(0, isPointsCategory ? 10 : 5);
   const matches = useMemo(
     () => [...(matchPages?.flatMap((page) => page.items) || [])]
       .sort((left, right) => (left.matchNumber || 0) - (right.matchNumber || 0)),
@@ -241,6 +241,8 @@ export default function CategoryDetailPage() {
     [drawsResponse],
   );
   const poolMatches = useMemo(() => matches.filter((match) => !match.drawId), [matches]);
+  const finalStandings = (isPointsCategory ? standings : categoryMedalStandings(standings, draws))
+    .slice(0, isPointsCategory ? 10 : 5);
 
   const isLoading = categoryLoading || eventLoading || standingsLoading || matchesLoading || drawsLoading;
   const mainDivision = category?.divisions?.find((division) => division.name.includes('MAIN TREE'));

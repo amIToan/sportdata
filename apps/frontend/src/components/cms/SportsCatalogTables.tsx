@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Alert, Button, Card, Empty, Input, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, type TableProps } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, Empty, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, type TableProps } from 'antd';
 import { Dumbbell, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Tags, Trash2 } from 'lucide-react';
 import { imageUrl } from '@/lib/image-url';
 
@@ -20,6 +20,7 @@ type Props = {
   onDeleteSport: (sport: any) => Promise<void>;
   onDeleteCategory: (category: any) => Promise<void>;
   onVisibility: (sport: any, visible: boolean) => Promise<void>;
+  onSortOrder: (sport: any, sortOrder: number) => Promise<void>;
   options: { discipline: Option[]; uniform: Option[]; beltLevel: Option[]; format: Option[] };
 };
 
@@ -82,6 +83,9 @@ export function SportsCatalogTables(props: Props) {
     </Space>
   );
   const sportColumns: TableProps<any>['columns'] = [
+    { title: 'Thứ tự hiển thị', dataIndex: 'sortOrder', width: 150, fixed: 'left', sorter: (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0), render: (value, sport) => props.canManageSports
+      ? <SportOrderInput value={value ?? 0} name={sport.name} onSave={(sortOrder) => props.onSortOrder(sport, sortOrder)} />
+      : value ?? 0 },
     { title: 'Bộ môn', key: 'name', width: 300, sorter: (a, b) => a.name.localeCompare(b.name, 'vi'), render: (_, sport) => (
       <div className="sports-catalog-identity">
         <span className="sports-catalog-logo">{sport.logoUrl ? (
@@ -101,7 +105,6 @@ export function SportsCatalogTables(props: Props) {
         onChange={async (visible) => { setBusySport(sport.id); try { await props.onVisibility(sport, visible); } finally { setBusySport(undefined); } }} />
       <Typography.Text type="secondary">{sport.isVisible !== false ? 'Hiển thị' : 'Đang ẩn'}</Typography.Text>
     </Space> : <Tag color={sport.isVisible !== false ? 'success' : 'default'}>{sport.isVisible !== false ? 'Hiển thị' : 'Đang ẩn'}</Tag> },
-    { title: 'Thứ tự', dataIndex: 'sortOrder', width: 90, sorter: (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0), render: (value) => value || 0 },
     { title: 'Thao tác', key: 'actions', width: 180, fixed: 'right', render: (_, sport) => <Space size={4}>
       {props.canManageCategories && <Tooltip title="Thêm hạng đấu"><Button type="text" aria-label={`Thêm hạng đấu cho ${sport.name}`} icon={<Plus size={16} />} onClick={() => props.onEditCategory(sport)} /></Tooltip>}
       {actions(sport)}
@@ -141,7 +144,7 @@ export function SportsCatalogTables(props: Props) {
           <Select allowClear aria-label="Trạng thái hiển thị" placeholder="Tất cả trạng thái" value={visibility} onChange={(value) => { setVisibility(value); setSportPage(1); }} options={[{ value: 'visible', label: 'Đang hiển thị' }, { value: 'hidden', label: 'Đang ẩn' }]} />
           <Button icon={<RotateCcw size={16} />} disabled={!sportSearch && !visibility} onClick={() => { setSportSearch(''); setVisibility(undefined); setSportPage(1); }}>Đặt lại</Button>
         </div>
-        <Typography.Text type="secondary">{filteredSports.length} / {sports.length} bộ môn · Chọn số hạng đấu để xem danh sách</Typography.Text>
+        <Typography.Text type="secondary">{filteredSports.length} / {sports.length} bộ môn · Số thứ tự nhỏ hiển thị trước{props.canManageSports ? ' · Nhập thứ tự rồi nhấn Enter hoặc rời ô để lưu' : ''}</Typography.Text>
       </> : <>
         <div className="sports-catalog-filters">
           <Input allowClear aria-label="Tìm hạng đấu" prefix={<Search size={17} />} placeholder="Tìm tên hạng, bộ môn, cân nặng…" value={categorySearch} onChange={(event) => { setCategorySearch(event.target.value); setCategoryPage(1); }} />
@@ -163,9 +166,33 @@ export function SportsCatalogTables(props: Props) {
         </div>
       </>}
     </div>
-    {tab === 'sports' ? <Table key="sports" rowKey="id" loading={props.loading} columns={sportColumns} dataSource={filteredSports} scroll={{ x: 1130 }} locale={{ emptyText: empty }}
+    {tab === 'sports' ? <Table key="sports" rowKey="id" loading={props.loading} columns={sportColumns} dataSource={filteredSports} scroll={{ x: 1190 }} locale={{ emptyText: empty }}
       pagination={pagination(filteredSports.length, sportPage, sportPageSize, (page, size) => { setSportPage(page); setSportPageSize(size); })} /> :
       <Table key="categories" rowKey="id" loading={props.loading} columns={categoryColumns} dataSource={filteredCategories} scroll={{ x: 1560 }} locale={{ emptyText: empty }}
         pagination={pagination(filteredCategories.length, categoryPage, categoryPageSize, (page, size) => { setCategoryPage(page); setCategoryPageSize(size); })} />}
   </Card>;
+}
+
+function SportOrderInput({ value, name, onSave }: { value: number; name: string; onSave: (value: number) => Promise<void> }) {
+  const [draft, setDraft] = useState<number | null>(value);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const save = async () => {
+    const nextValue = draft ?? 0;
+    if (saving || nextValue === value) return;
+    setSaving(true);
+    try {
+      await onSave(nextValue);
+      setDraft(nextValue);
+    } catch {
+      setDraft(value);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <InputNumber<number> aria-label={`Thứ tự hiển thị ${name}`} min={0} max={2147483647} precision={0} value={draft} disabled={saving}
+    className="w-full" onChange={setDraft} onBlur={() => { void save(); }} onPressEnter={(event) => (event.target as HTMLInputElement).blur()} />;
 }

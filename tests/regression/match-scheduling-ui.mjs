@@ -9,7 +9,7 @@ import net from 'node:net';
 
 const require = createRequire(import.meta.url);
 
-export async function runScheduleUi({ apiBase, db, eventId, token, actor, categoryId, categoryName }) {
+export async function runScheduleUi({ apiBase, db, eventId, token, actor, categoryId, categoryName, additionalCategoryName }) {
   const { chromium } = require(process.env.SCHEDULE_PLAYWRIGHT_MODULE || '/private/tmp/sportdata-browser/node_modules/playwright');
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const output = `${root}output/qa/match-scheduling`;
@@ -62,16 +62,27 @@ export async function runScheduleUi({ apiBase, db, eventId, token, actor, catego
     await page.getByRole('button', { name: '+ Tạo lịch', exact: true }).first().click();
     await page.getByLabel('Tên lịch', { exact: true }).fill('Lịch C · Full Contact');
     assert.equal(await db.matchSchedulePlan.count({ where: { eventId } }), beforePlans, 'opening a wizard does not write a plan');
+    assert.equal(await page.getByLabel('Hạng cân / hạng đấu cần xếp lịch', { exact: true }).isEnabled(), false, 'choose discipline before weights');
     await page.getByLabel('Thêm nội dung thi đấu', { exact: true }).click();
-    await page.getByText('FULL_CONTACT · Nam', { exact: true }).click();
+    const contentOption = page.locator('.ant-select-item-option-content').filter({ hasText: /Full Contact tự động.*Contact Ju-Jitsu \/ Full Contact/ });
+    assert.equal(await contentOption.count(), 1, 'two weight categories share a single discipline option');
+    await contentOption.click();
+    await page.getByLabel('Hạng cân / hạng đấu cần xếp lịch', { exact: true }).click();
+    await page.locator('.ant-select-item-option-content').filter({ hasText: categoryName }).click();
+    await page.locator('.ant-select-item-option-content').filter({ hasText: additionalCategoryName }).click();
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Thêm nội dung', exact: true }).click();
+    assert.equal(await page.getByRole('checkbox', { name: categoryName, exact: true }).isChecked(), true);
+    assert.equal(await page.getByRole('checkbox', { name: additionalCategoryName, exact: true }).isChecked(), true, 'multiple weights are added together');
+    assert.equal(await page.getByRole('button', { name: 'Bỏ nội dung', exact: true }).count(), 1, 'weights in the same scheduling group share one block');
+    await page.getByRole('checkbox', { name: additionalCategoryName, exact: true }).uncheck();
     await page.getByRole('checkbox', { name: categoryName, exact: true }).check();
     await page.getByText('Sơ đồ cây', { exact: true }).click();
     await page.getByText('Giữ thay đổi bản nháp?', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Ở lại', exact: true }).click();
     assert.equal(await page.getByLabel('Tên lịch', { exact: true }).inputValue(), 'Lịch C · Full Contact');
     await page.getByLabel('Giờ bắt đầu tự động', { exact: true }).fill('09:00');
+    await page.getByLabel('Giờ bắt đầu tự động', { exact: true }).press('Enter');
     await page.screenshot({ path: `${output}/02-step-content.png`, fullPage: true });
     const autoResponse = page.waitForResponse((response) => response.url().endsWith('/preview') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Sắp xếp tự động', exact: true }).click();
@@ -90,9 +101,10 @@ export async function runScheduleUi({ apiBase, db, eventId, token, actor, catego
     const movedTime = pinnedTime + 2 * 60000;
     const clock = (value) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value));
     await page.locator('.ant-collapse-header').filter({ hasText: 'Vòng 32 người' }).first().click();
-    const secondRow = page.getByText(`STT 2 · Trận #${secondNumber}`, { exact: true }).locator('..').locator('..');
+    const secondRow = page.getByText(`Trận 2 · #${secondNumber}`, { exact: true }).locator('..').locator('..');
     await secondRow.getByRole('button', { name: 'Cố định giờ', exact: true }).click();
     await page.getByLabel('Giờ dời trận', { exact: true }).fill(clock(pinnedTime));
+    await page.getByLabel('Giờ dời trận', { exact: true }).press('Enter');
     const pinnedResponse = page.waitForResponse((response) => response.url().endsWith('/preview') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Tính lại phần sau', exact: true }).click();
     const pinnedPreview = await (await pinnedResponse).json();
@@ -102,6 +114,7 @@ export async function runScheduleUi({ apiBase, db, eventId, token, actor, catego
     await secondRow.getByRole('button', { name: 'Dời từ đây', exact: true }).click();
     assert.equal(await page.getByLabel('Giờ dời trận', { exact: true }).inputValue(), clock(pinnedTime), 'drawer restores existing pin');
     await page.getByLabel('Giờ dời trận', { exact: true }).fill(clock(movedTime));
+    await page.getByLabel('Giờ dời trận', { exact: true }).press('Enter');
     const movedResponse = page.waitForResponse((response) => response.url().endsWith('/preview') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Tính lại phần sau', exact: true }).click();
     const movedPreview = await (await movedResponse).json();
@@ -118,7 +131,9 @@ export async function runScheduleUi({ apiBase, db, eventId, token, actor, catego
     await page.getByRole('button', { name: 'Xóa ngày', exact: true }).last().click();
     await page.getByRole('button', { name: 'Xóa ngày', exact: true }).last().click();
     await page.getByLabel('Bắt đầu ngày 1', { exact: true }).fill('09:00');
+    await page.getByLabel('Bắt đầu ngày 1', { exact: true }).press('Enter');
     await page.getByLabel('Kết thúc ngày 1', { exact: true }).fill('09:10');
+    await page.getByLabel('Kết thúc ngày 1', { exact: true }).press('Enter');
     await page.screenshot({ path: `${output}/03-step-windows.png`, fullPage: true });
     await page.getByRole('button', { name: 'Quay lại', exact: true }).click();
     assert.equal(await page.getByLabel('Tên lịch', { exact: true }).inputValue(), 'Lịch C · Full Contact');
@@ -137,6 +152,7 @@ export async function runScheduleUi({ apiBase, db, eventId, token, actor, catego
     await page.screenshot({ path: `${output}/04-overflow.png`, fullPage: true });
     await page.getByRole('button', { name: 'Quay lại', exact: true }).click();
     await page.getByLabel('Kết thúc ngày 1', { exact: true }).fill('10:30');
+    await page.getByLabel('Kết thúc ngày 1', { exact: true }).press('Enter');
     await page.getByRole('button', { name: '+ Thêm ngày tiếp tục', exact: true }).click();
     await page.getByRole('button', { name: 'Sắp xếp tự động', exact: true }).click();
     await page.getByText('31/31 trận đã xếp', { exact: true }).waitFor();

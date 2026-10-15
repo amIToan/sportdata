@@ -124,7 +124,8 @@ export function semanticStages(snapshot: ScheduleSnapshot, categoryId: string) {
       const bronze = repechage && round === rounds;
       const stageKey = grandFinal ? 'GRAND_FINAL' : bronze ? 'BRONZE'
         : `${repechage ? 'REP' : 'LOWER'}_${remaining}_${round % 2 ? 'CONSOLIDATE' : 'JOIN'}`;
-      const stageOrder = draw.type === 'REPECHAGE_QUARTERFINALS' ? (bronze ? -9 : -18)
+      // Main-tree finals have order -10: both bronze bouts must precede them.
+      const stageOrder = draw.type === 'REPECHAGE_QUARTERFINALS' ? (bronze ? -12 : -18)
         : grandFinal ? 0 : -Math.log2(remaining) * 10 + (round % 2 ? 2 : 1);
       group.forEach((match) => stages.set(match.id, { stageKey, stageOrder, drawId: draw.id }));
     }

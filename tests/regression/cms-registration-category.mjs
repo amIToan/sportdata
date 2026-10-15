@@ -6,6 +6,12 @@ import { createHash } from 'node:crypto';
 
 const require = createRequire(new URL('../../apps/backend/package.json', import.meta.url));
 const { ParticipantsService } = require('./dist/src/participants/participants.service.js');
+const { assertAthleteEligibility } = require('./dist/src/competitions/athlete-eligibility.js');
+assert.doesNotThrow(() => assertAthleteEligibility(
+  { gender: 'MALE', birthDate: new Date('2000-01-01'), weight: 80 },
+  { gender: 'MALE', minAge: null, maxAge: null, minWeight: null, maxWeight: 60 },
+  new Date('2035-01-01'),
+), 'Category maximum weight must not block competition entries');
 const ts = require('typescript');
 const frontendModule = { exports: {} };
 const frontendSource = readFileSync(new URL('../../apps/frontend/src/lib/registration-table.ts', import.meta.url), 'utf8');
@@ -168,7 +174,7 @@ async function rejectsUnchanged(f, categoryId, pattern) {
 }
 for (const [extra, message] of [
   [{ gender: 'FEMALE' }, /Giới tính/], [{ minAge: 40 }, /đủ 40 tuổi/], [{ maxAge: 20 }, /tối đa 20 tuổi/],
-  [{ minWeight: 70 }, /tối thiểu/], [{ maxWeight: 60 }, /tối đa/], [{ sportId: 'other' }, /cùng môn/],
+  [{ minWeight: 70 }, /tối thiểu/], [{ sportId: 'other' }, /cùng môn/],
   [{ eventId: 'other' }, /không thuộc/],
 ]) {
   await rejectsUnchanged(fixture({ categories: [category('invalid', 'DUO', extra)] }), 'invalid', message);
@@ -278,8 +284,12 @@ for (const corrupt of [
   await assert.rejects(f.service.createAdminRegistration(dto), /ảnh|CCCD|hộ chiếu|giấy tờ|tệp|JPG|PDF/i);
   assert.equal(f.state().registrations.length, 1);
 }
-const ineligibleAdmin = fixture({ athlete: { weight: 80 } });
-await assert.rejects(ineligibleAdmin.service.createAdminRegistration({ eventId: 'event', categoryId: 'gi-77', athleteId: 'athlete' }), /tối đa/);
+const overweightAdmin = fixture({ athlete: { weight: 80 } });
+await overweightAdmin.service.createAdminRegistration({ eventId: 'event', categoryId: 'gi-77', athleteId: 'athlete' });
+assert.equal(overweightAdmin.state().registrations.length, 2, 'Category maximum weight must not block admin registration');
+const overweightEdit = fixture({ categories: [category('info-weight', 'CONTACT', { maxWeight: 60 })] });
+await overweightEdit.service.updateRegistrationCategory('registration', 'info-weight');
+assert.equal(overweightEdit.state().registrations[0].categoryId, 'info-weight');
 
 assert.equal(registrationDisciplineKey(category('gi', 'NEWAZA')), registrationDisciplineKey(category('gi', 'NEWAZA', { uniform: 'GI' })));
 assert.notEqual(registrationDisciplineKey(category('gi', 'NEWAZA')), registrationDisciplineKey(category('nogi', 'NEWAZA', { uniform: 'NO_GI' })));

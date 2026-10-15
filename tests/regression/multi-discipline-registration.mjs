@@ -215,7 +215,8 @@ for (const categoryIds of [[], ['invalid'], ['category-0', 'category-0'], ['cate
   assert.equal(invalid.state().athletes.length, 0);
 }
 const overweight = fixture();
-await assert.rejects(overweight.service.createGuestRegistrations(overweight.payload({ ...overweight.athlete, weight: 80, categoryIds: selected }), overweight.files), /Cân nặng tối đa/);
+await overweight.service.createGuestRegistrations(overweight.payload({ ...overweight.athlete, weight: 80, categoryIds: selected }), overweight.files);
+assert.equal(overweight.state().registrations.length, selected.length, 'Category maximum weight is informational');
 
 // Free events confirm every discipline without collecting a fee.
 const free = fixture('FREE');
