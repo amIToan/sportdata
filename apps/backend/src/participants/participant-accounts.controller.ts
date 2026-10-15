@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, ParseEnumPipe, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, ParseEnumPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { AthleteMediaType } from '@prisma/client';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -7,6 +7,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { ImageVariant, ImageVariantPipe } from '../storage/image-variant';
 import { ListParticipantAccountsDto } from './dto/list-participant-accounts.dto';
 import { ParticipantAccountsService } from './participant-accounts.service';
+import { DeletePersonnelDto } from './dto/delete-personnel.dto';
 
 @Controller('participant-auth/admin/accounts')
 @UseGuards(JwtAuthGuard)
@@ -18,6 +19,24 @@ export class ParticipantAccountsController {
   @Header('Cache-Control', 'private, no-store')
   list(@Query() query: ListParticipantAccountsDto) {
     return this.service.list(query);
+  }
+
+  @Get(':id/events')
+  @Header('Cache-Control', 'private, no-store')
+  eventHistory(@Param('id') id: string) {
+    return this.service.eventHistory(id);
+  }
+
+  @Post('personnel/delete')
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)
+  deletePersonnel(@Body() dto: DeletePersonnelDto) {
+    return this.service.deletePersonnel(dto);
+  }
+
+  @Delete('personnel/:id')
+  @Roles(UserRole.ADMIN, UserRole.GAMES_ADMIN)
+  deleteOnePersonnel(@Param('id') id: string) {
+    return this.service.deletePersonnel({ ids: [id] });
   }
 
   @Get(':id/media/:type')

@@ -4,12 +4,11 @@ import { imageUrl } from '@/lib/image-url';
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import useSWR from 'swr';
 import { Button, Card, Empty, Skeleton, Tag } from 'antd';
-import { ArrowRight, CalendarDays, Clock3, MapPin, Trophy, Users } from 'lucide-react';
+import { ArrowRight, CalendarDays, Clock3, MapPin, Trophy } from 'lucide-react';
 import { fetcher } from '@/lib/api';
-import { getParticipantAccount, getParticipantToken } from '@/lib/participant-auth';
 import { formatDateRange } from '@/lib/utils';
 
 type Sport = {
@@ -56,7 +55,6 @@ function registrationState(event: EventItem) {
 export default function SportPlatformPage() {
   const params = useParams<{ sportCode: string }>();
   const code = decodeURIComponent(params.sportCode || '').toUpperCase();
-  const [participantSession, setParticipantSession] = useState({ checked: false, active: false });
   const { data: sports = [], isLoading: sportsLoading } = useSWR<Sport[]>('/sports', fetcher);
   const sport = sports.find((item) => item.code.toUpperCase() === code && item.isVisible !== false);
   const { data: response, isLoading: eventsLoading } = useSWR<{ items: EventItem[] }>(
@@ -72,21 +70,6 @@ export default function SportPlatformPage() {
   }), [events]);
   const isJiuJitsu = sport && /(JU|JIU|JJ)/i.test(`${sport.code} ${sport.name}`);
 
-  useEffect(() => {
-    const syncParticipantSession = () => {
-      setParticipantSession({
-        checked: true,
-        active: Boolean(getParticipantToken() && getParticipantAccount()),
-      });
-    };
-    syncParticipantSession();
-    window.addEventListener('participant-session-change', syncParticipantSession);
-    window.addEventListener('storage', syncParticipantSession);
-    return () => {
-      window.removeEventListener('participant-session-change', syncParticipantSession);
-      window.removeEventListener('storage', syncParticipantSession);
-    };
-  }, []);
 
   if (sportsLoading || (sport && eventsLoading)) {
     return <main className="mx-auto max-w-7xl px-4 py-12"><Skeleton active paragraph={{ rows: 10 }} /></main>;
@@ -117,15 +100,11 @@ export default function SportPlatformPage() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Button type="primary" size="large" href="#events" icon={<CalendarDays className="h-4 w-4" />}>Xem sự kiện</Button>
-              {participantSession.checked && !participantSession.active && (
-                <Link href="/account/register"><Button size="large" icon={<Users className="h-4 w-4" />}>Tạo tài khoản SportData</Button></Link>
-              )}
             </div>
           </div>
           <Card className="sport-platform-metrics border-sky-400/20 bg-slate-950/50 backdrop-blur">
-            <div className="grid grid-cols-2 gap-4 text-center">
+            <div className="text-center">
               <div className="rounded-xl bg-white/5 p-5"><strong className="block text-3xl text-white">{events.length}</strong><span className="text-sm text-slate-400">Sự kiện</span></div>
-              <div className="rounded-xl bg-white/5 p-5"><strong className="block text-3xl text-white">{sport.categories?.length || 0}</strong><span className="text-sm text-slate-400">Hạng đấu</span></div>
             </div>
           </Card>
         </div>

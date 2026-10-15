@@ -430,9 +430,9 @@ export default function EventDetailPage() {
           )}
         </header>
         </section>
-      <div className="mx-auto w-full max-w-[1200px] px-3 sm:px-5">
+      <div className="event-detail-content mx-auto w-full max-w-[1200px] px-3 sm:px-5">
 
-        <Card className="schedule-registration-card registration-flow mt-7" title={<span className="flex items-center gap-2"><TicketCheck className="h-5 w-5 text-sky-400" />Tham gia sự kiện</span>} extra={<Tag color={registrationState.open ? 'success' : 'default'}>{registrationState.label}</Tag>}>
+        <Card className="schedule-registration-card registration-flow" title={<span className="flex items-center gap-2"><TicketCheck className="h-5 w-5 text-sky-400" />Tham gia sự kiện</span>} extra={<Tag color={registrationState.open ? 'success' : 'default'}>{registrationState.label}</Tag>}>
           <p className="registration-muted mb-5">Bạn tham gia với vai trò nào? Chọn bên dưới để mở thông tin đăng ký phù hợp.</p>
           <RegistrationRolePicker eventId={eventId} disabled={!registrationState.open} />
           <div className="registration-card-note"><TicketCheck size={17} /><span>Vé có mã QR được gửi qua email sau khi hồ sơ được duyệt.</span><Link href="/account">Xem hồ sơ và vé của tôi →</Link></div>

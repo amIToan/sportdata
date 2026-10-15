@@ -6456,6 +6456,27 @@ html[data-app-theme="light"] .registration-document-empty {
   min-width: max-content;
 }
 
+.sports-catalog .ant-tabs-nav { margin: 0; padding: 0 24px; }
+.sports-catalog-toolbar { display: grid; gap: 16px; padding: 24px; }
+.sports-catalog-filters { display: grid; grid-template-columns: minmax(240px, 2fr) minmax(180px, 1fr) minmax(150px, 1fr) auto; gap: 12px; }
+.sports-catalog-sport-filters { grid-template-columns: minmax(240px, 1fr) 220px auto; }
+.sports-catalog-advanced { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sports-catalog-filters .ant-select { width: 100%; }
+.sports-catalog-results { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.sports-catalog-identity { display: flex; align-items: center; gap: 12px; }
+.sports-catalog-logo { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 10px; color: #0ea5e9; background: #0ea5e915; padding: 6px; }
+.sports-catalog-logo img { width: 100%; height: 100%; object-fit: contain; }
+.sports-catalog .ant-table-pagination { padding: 0 24px; }
+@media (max-width: 1100px) {
+  .sports-catalog-filters, .sports-catalog-advanced { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .sports-catalog-toolbar { padding: 16px; }
+  .sports-catalog .ant-tabs-nav { padding: 0 16px; }
+  .sports-catalog-filters, .sports-catalog-advanced { grid-template-columns: minmax(0, 1fr); }
+  .sports-catalog .ant-table-pagination { padding: 0 16px; }
+}
+
 .event-detail-hero {
   overflow: hidden;
   width: 100%;
@@ -6493,6 +6514,7 @@ html[data-app-theme="light"] .registration-document-empty {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   column-gap: 28px;
+  row-gap: 12px;
   max-width: 1200px;
   margin: 0 auto;
   padding: 32px 20px;
@@ -6509,6 +6531,15 @@ html[data-app-theme="light"] .registration-document-empty {
 
 .event-detail-heading > :not(.event-detail-identity) {
   grid-column: 2;
+}
+
+.event-detail-heading > p,
+.event-detail-heading .event-detail-sports {
+  margin: 0;
+}
+
+.event-detail-content {
+  padding-top: 32px;
 }
 
 .event-detail-identity {
@@ -6545,7 +6576,7 @@ html[data-app-theme="light"] .registration-document-empty {
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 12px 24px;
-  margin-top: 18px;
+  margin-top: 0;
   color: #cbd5e1;
   font-size: 14px;
 }
@@ -6580,8 +6611,10 @@ html[data-app-theme="light"] .registration-document-empty {
 .public-theme-light .event-roster-sport { color: #64748b; }
 
 @media (max-width: 640px) {
-  .event-detail-heading { display: block; padding: 20px 16px 24px; }
-  .event-detail-identity { margin-bottom: 16px; }
+  .event-detail-heading { grid-template-columns: minmax(0, 1fr); row-gap: 12px; padding: 20px 16px 24px; }
+  .event-detail-heading > :not(.event-detail-identity) { grid-column: 1; }
+  .event-detail-identity { grid-row: auto; margin-bottom: 4px; }
+  .event-detail-content { padding-top: 24px; }
   .event-detail-logo { width: 80px; height: 80px; border-radius: 16px; }
   .has-banner .event-detail-logo { margin-top: -48px; }
   .event-registration-summary .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; padding: 12px 0; }
@@ -6594,6 +6627,8 @@ html[data-app-theme="light"] .registration-document-empty {
   --registration-border: #293a50;
   --registration-surface: #111c2e;
   --registration-hover: #142e43;
+  --registration-accent: #7dd3fc;
+  --registration-disabled: #192536;
   color: var(--registration-text);
 }
 .public-theme-light .registration-flow {
@@ -6602,7 +6637,28 @@ html[data-app-theme="light"] .registration-document-empty {
   --registration-border: #dce5ee;
   --registration-surface: #ffffff;
   --registration-hover: #f0f9ff;
+  --registration-accent: #0369a1;
+  --registration-disabled: #f1f5f9;
 }
+.registration-tone-panel { background: var(--registration-hover, #142e43); border-color: #0ea5e94d; color: var(--registration-text, #e2e8f0); }
+.registration-tone-title { color: var(--registration-accent, #7dd3fc); }
+.registration-discipline-entry { background: var(--registration-surface, #111c2e); border-color: var(--registration-border, #293a50); color: var(--registration-text, #e2e8f0); }
+.registration-disciplines { border-color: var(--registration-border, #293a50); }
+.public-theme-light .registration-tone-panel { background: #f0f9ff; color: #142238; border-color: #bae6fd; }
+.public-theme-light .registration-tone-title { color: #0369a1; }
+.public-theme-light .registration-discipline-entry { background: #fff; color: #142238; border-color: #dce5ee; }
+.public-theme-light .registration-disciplines { border-color: #dce5ee; }
+.registration-flow .ant-input::placeholder,
+.registration-flow .ant-picker-input > input::placeholder,
+.registration-flow .ant-select-placeholder,
+.registration-flow .ant-select-selection-placeholder { color: var(--registration-muted) !important; opacity: 1; }
+.registration-flow .ant-select-disabled,
+.registration-flow .ant-select-disabled .ant-select-selector,
+.registration-flow .ant-input-disabled,
+.registration-flow .ant-picker-disabled,
+.registration-flow .ant-btn:disabled { background: var(--registration-disabled) !important; border-color: var(--registration-border) !important; color: var(--registration-muted) !important; }
+.registration-flow .ant-select-arrow,
+.registration-flow .ant-picker-suffix { color: var(--registration-muted); }
 .registration-muted { color: var(--registration-muted); line-height: 1.6; }
 .registration-back { display: inline-flex; align-items: center; gap: 8px; color: var(--registration-muted); font-size: 14px; }
 .registration-back:hover { color: #0284c7; }

@@ -5,6 +5,7 @@ import { Alert, Avatar, Button, Descriptions, Empty, Image, Modal, Skeleton, Spa
 import { RefreshCw, UserRound } from 'lucide-react';
 import { api } from '@/lib/api';
 import { accountTypeLabel, type SportDataAccountType } from '@/lib/sportdata-account-types';
+import { AccountEventHistory } from './AccountEventHistory';
 
 type AccountMediaType = 'AVATAR' | 'CCCD_FRONT' | 'CCCD_BACK' | 'PASSPORT';
 type AccountMedia = {
@@ -24,7 +25,7 @@ export type SportDataAccount = {
   verificationStatus: 'PENDING' | 'VERIFIED' | 'REJECTED';
   isActive: boolean;
   createdAt: string;
-  federation?: { id: string; name: string; type: string; country?: { name: string; code: string } } | null;
+  federation?: { id: string; name: string; code?: string | null; type: string; country?: { name: string; code: string } } | null;
   profile: {
     hasAvatar: boolean;
     hasIdentityDocuments: boolean;
@@ -40,6 +41,12 @@ const mediaLabels: Record<AccountMediaType, string> = {
   CCCD_FRONT: 'CCCD mặt trước',
   CCCD_BACK: 'CCCD mặt sau',
   PASSPORT: 'Hộ chiếu',
+};
+
+const federationTypeLabels: Record<string, string> = {
+  INTERNATIONAL_FEDERATION: 'Liên đoàn quốc tế', NATIONAL_FEDERATION: 'Liên đoàn quốc gia',
+  SPORTS_CENTER: 'Trung tâm thể thao', CLUB: 'Câu lạc bộ', SCHOOL: 'Trường học',
+  ACADEMY: 'Học viện', OTHER: 'Đơn vị khác',
 };
 
 export function accountStatusLabel(status: SportDataAccount['verificationStatus']) {
@@ -147,7 +154,7 @@ function AccountDocumentPreview({ accountId, media }: { accountId: string; media
 export function AccountProfileModal({ account, open, onClose }: { account?: SportDataAccount; open: boolean; onClose: () => void }) {
   const media = account?.profile.media || [];
   return (
-    <Modal open={open} onCancel={onClose} footer={<Button onClick={onClose}>Đóng</Button>} title="Hồ sơ tài khoản SportData" width={940} destroyOnHidden>
+    <Modal open={open} onCancel={onClose} footer={<Button onClick={onClose}>Đóng</Button>} title="Hồ sơ chi tiết" width={940} destroyOnHidden>
       {account && <div className="space-y-5 pt-3">
         <div className="flex items-center gap-4 rounded-2xl bg-slate-500/5 p-4">
           <AccountAvatar key={account.id} account={account} size={72} />
@@ -159,13 +166,30 @@ export function AccountProfileModal({ account, open, onClose }: { account?: Spor
         <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
           <Descriptions.Item label="Email"><span className="break-all">{account.email}</span></Descriptions.Item>
           <Descriptions.Item label="Số điện thoại">{account.phone || 'Chưa khai báo'}</Descriptions.Item>
-          <Descriptions.Item label="Đơn vị">{account.federation?.name || 'Chưa liên kết đơn vị'}</Descriptions.Item>
-          <Descriptions.Item label="Chức vụ">{account.representativePosition || 'Chưa khai báo'}</Descriptions.Item>
+          <Descriptions.Item label="Vai trò"><Space size={[0, 4]} wrap>{account.accountTypes.length ? account.accountTypes.map((type) => <Tag color="blue" key={type}>{accountTypeLabel(type)}</Tag>) : 'Chưa khai báo'}</Space></Descriptions.Item>
+          <Descriptions.Item label="Liên đoàn / Đơn vị">{account.federation?.name || 'Chưa liên kết đơn vị'}</Descriptions.Item>
+          <Descriptions.Item label="Mã đơn vị">{account.federation?.code || 'Chưa khai báo'}</Descriptions.Item>
+          <Descriptions.Item label="Loại đơn vị">{account.federation ? federationTypeLabels[account.federation.type] || account.federation.type || 'Chưa khai báo' : 'Chưa liên kết đơn vị'}</Descriptions.Item>
+          <Descriptions.Item label="Quốc gia của đơn vị">{account.federation?.country ? `${account.federation.country.code} · ${account.federation.country.name}` : 'Chưa khai báo'}</Descriptions.Item>
+          {account.representativePosition && <Descriptions.Item label="Thông tin đại diện">{account.representativePosition}</Descriptions.Item>}
           <Descriptions.Item label="Duyệt tài khoản">{accountStatusLabel(account.verificationStatus)}</Descriptions.Item>
           <Descriptions.Item label="Hoạt động">{account.isActive ? 'Đang hoạt động' : 'Đã ngừng hoạt động'}</Descriptions.Item>
           <Descriptions.Item label="Ngày đăng ký">{new Date(account.createdAt).toLocaleDateString('vi-VN')}</Descriptions.Item>
-          {account.profile.documentNumber && <Descriptions.Item label={account.profile.identityType === 'PASSPORT' ? 'Số hộ chiếu' : 'Số CCCD'}><Typography.Text copyable>{account.profile.documentNumber}</Typography.Text></Descriptions.Item>}
         </Descriptions>
+        <AccountEventHistory key={account.id} accountId={account.id} open={open} />
+        <div>
+          <Typography.Title level={5}>Thông tin giấy tờ định danh</Typography.Title>
+          <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
+            <Descriptions.Item label="Giấy tờ đang sử dụng">{account.profile.identityType === 'CCCD' ? 'Căn cước công dân (CCCD)' : account.profile.identityType === 'PASSPORT' ? 'Hộ chiếu (Passport)' : 'Chưa khai báo'}</Descriptions.Item>
+            <Descriptions.Item label="Hồ sơ giấy tờ">{account.profile.hasIdentityDocuments ? <Tag color="success">Đủ giấy tờ</Tag> : <Tag color="warning">Chưa đủ giấy tờ</Tag>}</Descriptions.Item>
+            <Descriptions.Item label="Số CCCD">{account.profile.identityType === 'CCCD' && account.profile.documentNumber ? <Typography.Text copyable>{account.profile.documentNumber}</Typography.Text> : 'Chưa khai báo'}</Descriptions.Item>
+            <Descriptions.Item label="Số hộ chiếu">{account.profile.identityType === 'PASSPORT' && account.profile.documentNumber ? <Typography.Text copyable>{account.profile.documentNumber}</Typography.Text> : 'Chưa khai báo'}</Descriptions.Item>
+            {(['CCCD_FRONT', 'CCCD_BACK', 'PASSPORT'] as const).map((type) => {
+              const document = media.find((item) => item.type === type);
+              return <Descriptions.Item key={type} label={mediaLabels[type]}>{!document ? <Typography.Text type="secondary">Chưa tải lên trong hồ sơ này</Typography.Text> : <Tag color={document.verificationStatus === 'VERIFIED' ? 'success' : document.verificationStatus === 'REJECTED' ? 'error' : 'processing'}>{document.verificationStatus === 'VERIFIED' ? 'Đã xác thực' : document.verificationStatus === 'REJECTED' ? 'Từ chối' : 'Chờ xác thực'}</Tag>}</Descriptions.Item>;
+            })}
+          </Descriptions>
+        </div>
         {!account.profile.complete && <Alert type="warning" showIcon title="Hồ sơ chưa đủ để đăng ký sự kiện." description={<span>{!account.profile.hasAvatar && 'Cần bổ sung ảnh thẻ. '}{!account.profile.hasIdentityDocuments && 'Cần bổ sung CCCD đủ hai mặt hoặc hộ chiếu.'}</span>} />}
         <div>
           <Typography.Title level={5}>Ảnh thẻ & giấy tờ định danh</Typography.Title>

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AccountVerificationStatus, AthleteMediaType, Prisma, SportDataAccountType } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +6,7 @@ import { StorageService } from '../storage/storage.service';
 import { AthleteIdentityService } from '../athletes/athlete-identity.service';
 import type { ImageVariant } from '../storage/image-variant';
 import { ListParticipantAccountsDto } from './dto/list-participant-accounts.dto';
+import { DeletePersonnelDto } from './dto/delete-personnel.dto';
 import {
   accountDocumentMimeTypes, accountImageMimeTypes, accountProfileState, accountProfileMediaTypes,
   selectAccountProfileSource, usableAccountMedia,
@@ -114,7 +115,7 @@ const accountSelect = {
   id: true, email: true, displayName: true, phone: true, accountType: true, accountTypes: true,
   representativePosition: true, verificationStatus: true, isActive: true, createdAt: true,
   identityType: true, documentEncrypted: true, media: { select: mediaSelect },
-  federation: { select: { id: true, name: true, country: { select: { code: true, name: true } } } },
+  federation: { select: { id: true, name: true, code: true, type: true, country: { select: { code: true, name: true } } } },
   athlete: { select: {
     identity: { select: { cccdEncrypted: true, passportEncrypted: true } },
     media: { select: mediaSelect },
@@ -135,6 +136,72 @@ export class ParticipantAccountsService {
     private readonly identity: AthleteIdentityService,
   ) {}
 
+  async eventHistory(accountId: string) {
+    return this.prisma.$transaction(async (transaction) => {
+      const account = await transaction.participantAccount.findUnique({
+        where: { id: accountId }, select: { id: true, athlete: { select: { id: true } } },
+      });
+      if (!account) throw new NotFoundException('Không tìm thấy hồ sơ');
+      const eventSelect = { id: true, name: true, startDate: true, endDate: true, location: true } as const;
+      const [participations, registrations] = await Promise.all([
+        transaction.eventParticipation.findMany({
+          where: { accountId }, orderBy: { createdAt: 'desc' },
+          select: { id: true, role: true, status: true, referenceCode: true, createdAt: true,
+            event: { select: eventSelect }, federation: { select: { name: true } } },
+        }),
+        transaction.eventRegistration.findMany({
+          where: { OR: [{ accountId }, ...(account.athlete ? [{ athleteId: account.athlete.id }] : [])] },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, athleteId: true, status: true, ticketCode: true, createdAt: true,
+            event: { select: eventSelect }, category: { select: { name: true } },
+            athlete: { select: { fullName: true } }, federation: { select: { name: true } } },
+        }),
+      ]);
+      type Event = { id: string; name: string; startDate: Date; endDate: Date; location: string | null };
+      type Entry = { id: string; role: string; status: string; referenceCode: string; createdAt: Date;
+        federationName: string | null; categoryName?: string; athleteName?: string };
+      const grouped = new Map<string, { event: Event; entries: Entry[] }>();
+      const add = (event: Event, entry: Entry) => {
+        const group = grouped.get(event.id) || { event, entries: [] };
+        group.entries.push(entry);
+        grouped.set(event.id, group);
+      };
+      for (const entry of participations) add(entry.event, {
+        id: entry.id, role: entry.role, status: entry.status, referenceCode: entry.referenceCode,
+        createdAt: entry.createdAt, federationName: entry.federation?.name || null,
+      });
+      for (const entry of registrations) add(entry.event, {
+        id: entry.id, role: entry.athleteId === account.athlete?.id ? 'ATHLETE' : 'REGISTRANT',
+        status: entry.status, referenceCode: entry.ticketCode, createdAt: entry.createdAt,
+        federationName: entry.federation?.name || null, categoryName: entry.category.name,
+        athleteName: entry.athlete.fullName,
+      });
+      const items = [...grouped.values()].sort((a, b) => b.event.startDate.getTime() - a.event.startDate.getTime()
+        || a.event.id.localeCompare(b.event.id));
+      return { items, total: items.length };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async deletePersonnel(dto: DeletePersonnelDto) {
+    if ((dto.all === true) === Boolean(dto.ids?.length)) {
+      throw new BadRequestException('Chọn danh sách nhân sự hoặc xác nhận xóa tất cả');
+    }
+    const roles: SportDataAccountType[] = ['REFEREE', 'TEAM_LEADER', 'COACH'];
+    const where: Prisma.ParticipantAccountWhereInput = {
+      OR: [{ accountType: { in: roles } }, { accountTypes: { hasSome: roles } }],
+      ...(dto.ids ? { id: { in: dto.ids } } : {}),
+    };
+    return this.prisma.$transaction(async (transaction) => {
+      if (dto.ids && await transaction.participantAccount.count({ where }) !== dto.ids.length) {
+        throw new BadRequestException('Một số hồ sơ không còn tồn tại hoặc không thuộc danh sách nhân sự. Vui lòng tải lại.');
+      }
+      // Event registrations and athlete records retain their data through the
+      // existing ON DELETE SET NULL relationships. Shared media objects are kept.
+      const deleted = await transaction.participantAccount.deleteMany({ where });
+      return { deleted: deleted.count };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
   async list(query: ListParticipantAccountsDto) {
     const filters: Prisma.ParticipantAccountWhereInput[] = [];
     if (query.search) {
@@ -145,6 +212,10 @@ export class ParticipantAccountsService {
       ] });
     }
     if (query.accountType) filters.push({ OR: [{ accountType: query.accountType }, { accountTypes: { has: query.accountType } }] });
+    if (query.accountGroup === 'PERSONNEL') {
+      const roles: SportDataAccountType[] = ['REFEREE', 'TEAM_LEADER', 'COACH'];
+      filters.push({ OR: [{ accountType: { in: roles } }, { accountTypes: { hasSome: roles } }] });
+    }
     if (query.verificationStatus) filters.push({ verificationStatus: query.verificationStatus });
     if (query.isActive !== undefined) filters.push({ isActive: query.isActive });
     if (query.federationId) filters.push({ federationId: query.federationId === 'none' ? null : query.federationId });

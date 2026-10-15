@@ -60,6 +60,7 @@ export const CMS_PAGE_ACCESS: Record<string, readonly CmsRole[]> = {
   '/cms/sports': ['ADMIN', 'CONTENT', 'GAMES_ADMIN', 'READ_ONLY'],
   '/cms/organizations': ['ADMIN', 'CONTENT', 'GAMES_ADMIN', 'READ_ONLY'],
   '/cms/accounts': ['ADMIN', 'GAMES_ADMIN', 'READ_ONLY'],
+  '/cms/personnel': ['ADMIN', 'GAMES_ADMIN', 'READ_ONLY'],
   '/cms/users': ['ADMIN'],
   '/cms/account': ALL_CMS_ROLES,
   '/cms/statistics': ALL_CMS_ROLES,

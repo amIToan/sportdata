@@ -732,11 +732,11 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
                 ? <Button danger type="text" icon={<Trash2 className="h-4 w-4" />} onClick={() => setAthletes((current) => current.filter((item) => item.key !== athlete.key))}>Xóa</Button>
                 : undefined}
             >
-              <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
-                <div className="mb-3 font-semibold text-sky-900">{index === 0 ? 'Hồ sơ VĐV đăng ký' : 'Hồ sơ đồng đội / VĐV'}</div>
+              <div className="registration-tone-panel mb-5 rounded-xl border p-4">
+                <div className="registration-tone-title mb-3 font-semibold">{index === 0 ? 'Hồ sơ VĐV đăng ký' : 'Hồ sơ đồng đội / VĐV'}</div>
                 <Segmented value={athlete.source || 'NEW'} options={[{ value: 'NEW', label: 'Khai báo mới' }, { value: 'DATABASE', label: 'Hồ sơ đã lưu' }]}
                   onChange={(value) => updateAthlete(athlete.key, { source: value as 'NEW' | 'DATABASE', reuseToken: undefined, hasAvatar: false, hasIdentity: false })} />
-                {athlete.source === 'DATABASE' && <p className="mb-0 mt-3 text-sm text-sky-800">Nhập số giấy tờ và SĐT đã dùng trước đây, hoặc họ tên cùng ngày sinh, rồi tìm hồ sơ. Chọn hồ sơ sẽ sử dụng lại thông tin và giấy tờ đã lưu.</p>}
+                {athlete.source === 'DATABASE' && <p className="registration-muted mb-0 mt-3 text-sm">Nhập số giấy tờ và SĐT đã dùng trước đây, hoặc họ tên cùng ngày sinh, rồi tìm hồ sơ. Chọn hồ sơ sẽ sử dụng lại thông tin và giấy tờ đã lưu.</p>}
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <div><label className="mb-2 block text-sm font-semibold">Loại giấy tờ *</label><Select className="w-full" size="large" value={athlete.identityType} onChange={(value) => updateAthlete(athlete.key, { identityType: value, documentNumber: '', identityOcr: undefined })} options={[{ value: 'CCCD', label: 'CCCD' }, { value: 'PASSPORT', label: 'Hộ chiếu' }]} /></div>
@@ -753,7 +753,7 @@ export default function AthleteEventRegistration({ embedded = false }: { embedde
                 <Button type="primary" loading={lookupKey === athlete.key} onClick={() => void lookupSavedAthlete(athlete)}>Tìm và chọn hồ sơ đã lưu</Button>
                 {athlete.reuseToken && <Tag color="green">Đã chọn: {athlete.fullName}</Tag>}
               </div>}
-              {!athlete.entries.length && <p className="mt-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Đồng đội tham gia nội dung do VĐV khai báo ở trên. Chỉ thêm nội dung dưới đây nếu đăng ký thi đấu thêm.</p>}
+              {!athlete.entries.length && <p className="registration-tone-panel mt-5 rounded-lg p-3 text-sm">Đồng đội tham gia nội dung do VĐV khai báo ở trên. Chỉ thêm nội dung dưới đây nếu đăng ký thi đấu thêm.</p>}
               <RegistrationDisciplines declarantName={athlete.fullName} partners={athletes.filter((item) => item.key !== athlete.key).map((item) => ({ key: item.key, name: item.fullName || `VĐV ${athletes.indexOf(item) + 1}` }))}
                 onAddPartner={(entryIndex, source) => addPartner(athlete, entryIndex, source)} categories={event.categories || []} entries={athlete.entries} existingRegistrations={[]}
                 onChange={(entries) => updateAthlete(athlete.key, { entries })} />

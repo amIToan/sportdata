@@ -71,7 +71,7 @@ export function RegistrationDisciplines({ categories, entries, existingRegistrat
   };
 
   return (
-    <div className="mt-6 border-t border-slate-200 pt-6">
+    <div className="registration-disciplines mt-6 border-t pt-6">
       <h3 className="font-bold">Nội dung thi đấu *</h3>
       <p className="mb-4 mt-2 text-sm text-slate-500">Có thể đăng ký nhiều nội dung. Mỗi nội dung chọn một hạng cân / hạng đấu. Duo và Show chọn hạng thi đấu do ban tổ chức quy định.</p>
       {existingRegistrations.length > 0 && (
@@ -93,7 +93,7 @@ export function RegistrationDisciplines({ categories, entries, existingRegistrat
       )}
       <div className="space-y-3">
         {entries.map((entry, index) => (
-          <div key={index} className="rounded-xl border border-slate-200 bg-white p-4">
+          <div key={index} className="registration-discipline-entry rounded-xl border p-4">
           <div className="flex items-end gap-2">
             <div className="grid flex-1 gap-3 md:grid-cols-2">
               <div>
@@ -113,9 +113,9 @@ export function RegistrationDisciplines({ categories, entries, existingRegistrat
             <Button danger size="large" aria-label={`Xóa nội dung ${index + 1}`} icon={<Trash2 className="h-4 w-4" />} onClick={() => onChange(entries.filter((_, entryIndex) => entryIndex !== index))} />
           </div>
           {['DUO', 'SHOW'].includes(categories.find((category) => category.id === entry.categoryId)?.discipline || '') && (
-            <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4">
-              <div className="mb-3 flex items-center gap-2 font-semibold text-sky-900"><Users size={18} /> Cặp thi đấu · 2 VĐV</div>
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-sky-900"><strong>{declarantName || 'VĐV khai báo'}</strong><span>+</span><strong>{partners.find((partner) => partner.key === entry.partnerKey)?.name || 'Chưa chọn đồng đội'}</strong></div>
+            <div className="registration-tone-panel mt-4 rounded-xl border p-4">
+              <div className="registration-tone-title mb-3 flex items-center gap-2 font-semibold"><Users size={18} /> Cặp thi đấu · 2 VĐV</div>
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm"><strong>{declarantName || 'VĐV khai báo'}</strong><span>+</span><strong>{partners.find((partner) => partner.key === entry.partnerKey)?.name || 'Chưa chọn đồng đội'}</strong></div>
               <label className="mb-2 block text-sm font-medium">Đồng đội của bạn *</label>
               <Select className="w-full" size="large" placeholder="Chọn VĐV trong hồ sơ đăng ký" value={entry.partnerKey}
                 onChange={(partnerKey) => updateEntry(index, { ...entry, partnerKey })}
@@ -124,7 +124,7 @@ export function RegistrationDisciplines({ categories, entries, existingRegistrat
                 <Button icon={<Plus size={15} />} onClick={() => onAddPartner?.(index, 'NEW')}>Khai báo đồng đội mới</Button>
                 <Button icon={<Users size={15} />} onClick={() => onAddPartner?.(index, 'DATABASE')}>Chọn hồ sơ đã lưu</Button>
               </div>
-              <p className="mb-0 mt-3 flex items-start gap-2 text-sm text-sky-800"><Wallet size={16} className="mt-0.5 shrink-0" /> VĐV khai báo nội dung này chịu lệ phí. Đồng đội không phải đóng thêm cho cặp này.</p>
+              <p className="registration-muted mb-0 mt-3 flex items-start gap-2 text-sm"><Wallet size={16} className="mt-0.5 shrink-0" /> VĐV khai báo nội dung này chịu lệ phí. Đồng đội không phải đóng thêm cho cặp này.</p>
             </div>
           )}
           </div>

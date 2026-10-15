@@ -90,6 +90,7 @@ const navItems: Array<CmsNavLeaf | CmsNavGroup> = [
     children: [
       { label: 'Danh sách đơn vị', key: '/cms/organizations', icon: <Building2 className="h-5 w-5" />, roles: CMS_PAGE_ACCESS['/cms/organizations'] },
       { label: 'Danh sách VĐV', key: '/cms/athletes', icon: <Users className="h-5 w-5" />, roles: CMS_PAGE_ACCESS['/cms/athletes'] },
+      { label: 'Trọng tài, trưởng đoàn & HLV', key: '/cms/personnel', icon: <UserCog className="h-5 w-5" />, roles: CMS_PAGE_ACCESS['/cms/personnel'] },
     ],
   },
   {

@@ -7,24 +7,20 @@ import useSWR from 'swr';
 import {
   App as AntApp,
   Button,
-  Card,
-  Empty,
   Form,
   Input,
   InputNumber,
   Popconfirm,
   Select,
-  Skeleton,
   Switch,
-  Tag,
-  Tooltip,
   Upload,
   type UploadFile,
 } from 'antd';
 import TextArea from 'antd/es/input/TextArea';
-import { Dumbbell, Eye, EyeOff, ImagePlus, Pencil, Plus, Tags, Trash2, UploadCloud } from 'lucide-react';
+import { Dumbbell, ImagePlus, Plus, Trash2, UploadCloud } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { CmsPageHeader } from '@/components/cms/CmsPageHeader';
+import { SportsCatalogTables } from '@/components/cms/SportsCatalogTables';
 import { api, fetcher } from '@/lib/api';
 
 const emptySport = {
@@ -335,152 +331,22 @@ export default function SportsPage() {
         action={canManageSports ? <Button type="primary" size="large" icon={<Plus className="h-4 w-4" />} onClick={() => openSport()}>Thêm bộ môn</Button> : undefined}
       />
 
-      {isLoading ? (
-        <div className="grid gap-5 lg:grid-cols-2">
-          {[0, 1, 2, 3].map((item) => (
-            <Card key={item} className="border-sdark-700 bg-sdark-900">
-              <Skeleton active paragraph={{ rows: 5 }} />
-            </Card>
-          ))}
-        </div>
-      ) : sports.length === 0 ? (
-        <Card className="border-sdark-700 bg-sdark-900">
-          <Empty description="Chưa có bộ môn nào" />
-        </Card>
-      ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
-          {sports.map((sport: any) => (
-            <Card
-              key={sport.id}
-              className="overflow-hidden border-sdark-700 bg-sdark-900"
-              styles={{ body: { padding: 0 } }}
-            >
-              <div className="flex items-start gap-4 border-b border-sdark-700 p-5">
-                <span className="grid h-14 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-sdark-700 bg-sblue-500/15 text-sblue-300">
-                  {sport.backgroundUrl ? (
-                    // Ảnh được quản trị trong CMS và phục vụ qua API nội bộ.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imageUrl(sport.backgroundUrl, 'card')} loading="lazy" alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <ImagePlus className="h-6 w-6" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-lg font-black text-slate-100">{sport.displayName || sport.name}</h2>
-                    <Tag className="m-0 font-mono font-bold">{sport.code}</Tag>
-                    <Tag color="blue" className="m-0">{sport._count?.events || 0} sự kiện</Tag>
-                    <Tag color={sport.isVisible !== false ? 'success' : 'default'} className="m-0">
-                      {sport.isVisible !== false ? 'Đang hiển thị' : 'Đang ẩn'}
-                    </Tag>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-slate-500">
-                    {sport.subtitle || sport.description || 'Chưa có tiêu đề phụ.'}
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  {canManageSports && <Tooltip title={sport.isVisible !== false ? 'Ẩn khỏi trang Sự kiện' : 'Hiển thị trên trang Sự kiện'}>
-                    <Switch
-                      size="small"
-                      checked={sport.isVisible !== false}
-                      checkedChildren={<Eye className="h-3 w-3" />}
-                      unCheckedChildren={<EyeOff className="h-3 w-3" />}
-                      onChange={(checked) => updateVisibility(sport, checked)}
-                    />
-                  </Tooltip>}
-                  {canManageSports && <Tooltip title="Sửa bộ môn">
-                    <Button
-                      type="text"
-                      aria-label="Sửa bộ môn"
-                      icon={<Pencil className="h-4 w-4" />}
-                      onClick={() => openSport(sport)}
-                    />
-                  </Tooltip>}
-                  {canDeleteSport && <Popconfirm
-                    title="Xóa bộ môn?"
-                    description="Các hạng đấu và dữ liệu thi đấu chỉ thuộc bộ môn này cũng sẽ bị xóa."
-                    okText="Xóa"
-                    cancelText="Hủy"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={() => removeSport(sport)}
-                  >
-                    <Tooltip title="Xóa bộ môn">
-                      <Button
-                        type="text"
-                        danger
-                        aria-label="Xóa bộ môn"
-                        icon={<Trash2 className="h-4 w-4" />}
-                      />
-                    </Tooltip>
-                  </Popconfirm>}
-                </div>
-              </div>
-
-              <div className="p-5">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-slate-300">
-                    <Tags className="h-4 w-4 text-sblue-400" />
-                    Hạng đấu ({sport.categories?.length || 0})
-                  </h3>
-                  {canManageCategories && <Button type="link" size="small" onClick={() => openCategory(sport)}>
-                    Thêm hạng
-                  </Button>}
-                </div>
-                <div className="max-h-[390px] space-y-2 overflow-y-auto pr-1">
-                  {(sport.categories || []).map((category: any) => (
-                    <div
-                      key={category.id}
-                      className="flex items-center justify-between rounded-xl bg-sdark-800/55 px-3 py-2.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-200">{category.name}</p>
-                        <p className="text-xs text-slate-500">
-                          {category.gender === 'FEMALE'
-                            ? 'Nữ'
-                            : category.gender === 'MIXED'
-                              ? 'Hỗn hợp'
-                              : 'Nam'}
-                          {category.maxWeight ? ` · đến ${category.maxWeight}kg` : ''}
-                          {category.discipline ? ` · ${disciplineOptions.find((item) => item.value === category.discipline)?.label || category.discipline}` : ''}
-                          {category.uniform ? ` · ${category.uniform === 'NO_GI' ? 'No-Gi' : 'Gi'}` : ''}
-                          {category.maxEntriesPerCountry ? ` · tối đa ${category.maxEntriesPerCountry}/quốc gia` : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {canManageCategories && <Button
-                          type="text"
-                          size="small"
-                          aria-label="Chỉnh sửa hạng đấu"
-                          icon={<Pencil className="h-3.5 w-3.5" />}
-                          onClick={() => openCategory(sport, category)}
-                        />}
-                        {canDeleteCategory && <Popconfirm
-                          title="Xóa hạng đấu?"
-                          description="Các trận đấu và sơ đồ thuộc hạng này cũng sẽ bị xóa."
-                          okText="Xóa"
-                          cancelText="Hủy"
-                          okButtonProps={{ danger: true }}
-                          onConfirm={() => removeCategory(category)}
-                        >
-                          <Button
-                            type="text"
-                            size="small"
-                            danger
-                            aria-label="Xóa hạng đấu"
-                            icon={<Trash2 className="h-3.5 w-3.5" />}
-                          />
-                        </Popconfirm>}
-                      </div>
-                    </div>
-                  ))}
-                  {!sport.categories?.length && <Empty description="Chưa có hạng đấu" />}
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
+      <SportsCatalogTables
+        sports={sports}
+        loading={isLoading}
+        error={Boolean(error)}
+        onRetry={() => { void mutate(); }}
+        canManageSports={canManageSports}
+        canManageCategories={canManageCategories}
+        canDeleteSport={canDeleteSport}
+        canDeleteCategory={canDeleteCategory}
+        onEditSport={openSport}
+        onEditCategory={openCategory}
+        onDeleteSport={removeSport}
+        onDeleteCategory={removeCategory}
+        onVisibility={updateVisibility}
+        options={{ discipline: disciplineOptions, uniform: uniformOptions, beltLevel: beltOptions, format: formatOptions }}
+      />
       <Modal
         isOpen={sportOpen}
         onClose={() => {
@@ -671,6 +537,16 @@ export default function SportsPage() {
         size="xl"
       >
         <Form layout="vertical" requiredMark={false} onFinish={saveCategory}>
+          {!editingCategory && <Field label="Bộ môn *">
+            <Select
+              showSearch
+              optionFilterProp="label"
+              className="w-full"
+              value={categorySport?.id}
+              options={sports.map((sport) => ({ value: sport.id, label: `${sport.name} (${sport.code})` }))}
+              onChange={(id) => setCategorySport(sports.find((sport) => sport.id === id))}
+            />
+          </Field>}
           <div className="grid grid-cols-1 gap-x-4 md:grid-cols-4">
             <div className="md:col-span-3">
               <Field label="Tên hạng đấu *">

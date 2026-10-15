@@ -14,6 +14,10 @@ export class ListParticipantAccountsDto {
   accountType?: SportDataAccountType;
 
   @IsOptional()
+  @IsIn(['PERSONNEL'])
+  accountGroup?: 'PERSONNEL';
+
+  @IsOptional()
   @IsEnum(AccountVerificationStatus)
   verificationStatus?: AccountVerificationStatus;
 

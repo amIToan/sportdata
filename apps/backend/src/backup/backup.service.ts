@@ -22,6 +22,8 @@ const MAX_BATCH_BYTES = 4 * 1024 * 1024;
 export const BACKUP_UPLOAD_CHUNK_SIZE = 3 * 1024 * 1024;
 const BACKUP_UPLOAD_TTL_HOURS = 24;
 const BACKUP_STAGING_TABLES = ['BackupUpload', 'BackupUploadChunk'];
+const STORAGE_MIGRATION_TABLE = '_StorageMigrationFiles';
+const STORAGE_MIGRATION_COLUMNS = ['tableName', 'recordId', 'keyColumn', 'mimeType', 'data'];
 
 type SchemaTable = {
   table: string;
@@ -379,6 +381,16 @@ export class BackupService {
         await client.query('BEGIN');
         transactionOpen = true;
 
+        if (validation.hasStorageMigrationFiles) {
+          // This table is created by the storage migration scripts, not Prisma.
+          // Preserve the original bytes when restoring a production backup.
+          await client.query(`CREATE TABLE IF NOT EXISTS "_StorageMigrationFiles" (
+            "tableName" text NOT NULL, "recordId" text NOT NULL, "keyColumn" text NOT NULL,
+            "mimeType" text NOT NULL, data bytea NOT NULL, "migratedKey" text,
+            PRIMARY KEY ("tableName", "recordId", "keyColumn"))`);
+          await client.query('ALTER TABLE "_StorageMigrationFiles" ADD COLUMN IF NOT EXISTS "migratedKey" text');
+        }
+
         for (const foreignKey of foreignKeys) {
           await client.query(
             `ALTER TABLE ${quoteIdentifier(foreignKey.tableName)} ` +
@@ -388,7 +400,32 @@ export class BackupService {
         }
         await client.query('SET CONSTRAINTS ALL DEFERRED');
 
-        const tableList = schema.map((table) => quoteIdentifier(table.table)).join(', ');
+        const restoreTables = schema.filter((table) => table.table !== STORAGE_MIGRATION_TABLE);
+        if (validation.hasStorageMigrationFiles) {
+          restoreTables.push({ table: STORAGE_MIGRATION_TABLE, columns: STORAGE_MIGRATION_COLUMNS });
+        }
+        const tableList = restoreTables.map((table) => quoteIdentifier(table.table)).join(', ');
+        const triggers = await client.query<{
+          tableName: string;
+          triggerName: string;
+          enabled: 'O' | 'A' | 'R';
+        }>(`
+          SELECT tables.relname AS "tableName", triggers.tgname AS "triggerName",
+                 triggers.tgenabled AS enabled
+          FROM pg_trigger AS triggers
+          JOIN pg_class AS tables ON tables.oid = triggers.tgrelid
+          JOIN pg_namespace AS namespaces ON namespaces.oid = tables.relnamespace
+          WHERE namespaces.nspname = 'public' AND NOT triggers.tgisinternal
+            AND triggers.tgconstraint = 0 AND triggers.tgenabled <> 'D'
+            AND tables.relname = ANY($1::text[])
+        `, [restoreTables.map((table) => table.table)]);
+        // Restore a snapshot without running edit guards or changing revisions.
+        // Foreign-key/constraint triggers remain active. ALTER TRIGGER is rolled
+        // back with the data if restoration fails.
+        for (const trigger of triggers.rows) {
+          await client.query(`ALTER TABLE ${quoteIdentifier(trigger.tableName)} ` +
+            `DISABLE TRIGGER ${quoteIdentifier(trigger.triggerName)}`);
+        }
         if (tableList) {
           await client.query(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`);
         }
@@ -432,6 +469,11 @@ export class BackupService {
         await flushBatch();
 
         await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+        for (const trigger of triggers.rows) {
+          const mode = trigger.enabled === 'A' ? 'ALWAYS ' : trigger.enabled === 'R' ? 'REPLICA ' : '';
+          await client.query(`ALTER TABLE ${quoteIdentifier(trigger.tableName)} ` +
+            `ENABLE ${mode}TRIGGER ${quoteIdentifier(trigger.triggerName)}`);
+        }
         for (const foreignKey of foreignKeys) {
           const originalMode = foreignKey.isDeferrable === 'YES'
             ? `DEFERRABLE INITIALLY ${foreignKey.initiallyDeferred === 'YES' ? 'DEFERRED' : 'IMMEDIATE'}`
@@ -548,12 +590,33 @@ export class BackupService {
           ) {
             throw new BadRequestException('Đây không phải file backup SportData được hỗ trợ');
           }
-          if (!schemasAreCompatible(record.schema, schema)) {
+          const migrationSchema = record.schema.find((table) => table?.table === STORAGE_MIGRATION_TABLE);
+          const businessSchema = record.schema.filter((table) => table?.table !== STORAGE_MIGRATION_TABLE);
+          const schemaDifferences = describeSchemaDifferences(
+            businessSchema,
+            schema.filter((table) => table.table !== STORAGE_MIGRATION_TABLE),
+          );
+          if (migrationSchema) {
+            const allowedColumns = [...STORAGE_MIGRATION_COLUMNS, 'migratedKey'];
+            if (!Array.isArray(migrationSchema.columns) ||
+              new Set(migrationSchema.columns).size !== migrationSchema.columns.length ||
+              STORAGE_MIGRATION_COLUMNS.some((column) => !migrationSchema.columns.includes(column)) ||
+              migrationSchema.columns.some((column) => !allowedColumns.includes(column)) ||
+              record.schema.filter((table) => table?.table === STORAGE_MIGRATION_TABLE).length !== 1) {
+              schemaDifferences.push(`Mô tả bảng ${STORAGE_MIGRATION_TABLE} trong backup không hợp lệ`);
+            }
+          }
+          if (schemaDifferences.length) {
             throw new BadRequestException(
-              'Cấu trúc file backup không tương thích với phiên bản hệ thống hiện tại',
+              'Cấu trúc file backup không tương thích với phiên bản hệ thống hiện tại: ' +
+                schemaDifferences.join('; '),
             );
           }
           metadata = record;
+          schemaByTable.clear();
+          for (const table of record.schema) schemaByTable.set(table.table, table.columns);
+          for (const table of Object.keys(tableCounts)) delete tableCounts[table];
+          for (const table of record.schema) tableCounts[table.table] = 0;
           continue;
         }
 
@@ -595,7 +658,7 @@ export class BackupService {
     if (footer.rows !== totalRows || footer.sha256 !== hash.digest('hex')) {
       throw new BadRequestException('File backup bị thiếu hoặc sai checksum');
     }
-    for (const table of schema) {
+    for (const table of metadata.schema) {
       if (footer.tables?.[table.table] !== tableCounts[table.table]) {
         throw new BadRequestException(`Số dòng của bảng ${table.table} không khớp`);
       }
@@ -605,6 +668,7 @@ export class BackupService {
       createdAt: metadata.createdAt,
       rows: totalRows,
       tables: tableCounts,
+      hasStorageMigrationFiles: metadata.schema.some((table) => table.table === STORAGE_MIGRATION_TABLE),
     };
   }
 
@@ -639,14 +703,35 @@ function quoteIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-function schemasAreCompatible(backupSchema: SchemaTable[], currentSchema: SchemaTable[]) {
-  if (backupSchema.length !== currentSchema.length) return false;
-
-  const backupTables = new Map(backupSchema.map(({ table, columns }) => [table, new Set(columns)]));
-  return currentSchema.every(({ table, columns }) => {
+function describeSchemaDifferences(backupSchema: SchemaTable[], currentSchema: SchemaTable[]) {
+  const differences: string[] = [];
+  const backupTables = new Map<string, Set<string>>();
+  for (const entry of backupSchema) {
+    if (!entry || typeof entry.table !== 'string' || !Array.isArray(entry.columns) ||
+      entry.columns.some((column) => typeof column !== 'string')) {
+      return ['Mô tả bảng/cột trong backup không hợp lệ'];
+    }
+    if (backupTables.has(entry.table) || new Set(entry.columns).size !== entry.columns.length) {
+      return [`Mô tả bảng/cột bị trùng trong backup: ${entry.table}`];
+    }
+    backupTables.set(entry.table, new Set(entry.columns));
+  }
+  const currentTables = new Map(currentSchema.map(({ table, columns }) => [table, new Set(columns)]));
+  for (const [table, columns] of currentTables) {
     const backupColumns = backupTables.get(table);
-    return backupColumns?.size === columns.length && columns.every((column) => backupColumns.has(column));
-  });
+    if (!backupColumns) {
+      differences.push(`Backup thiếu bảng ${table}`);
+      continue;
+    }
+    const missing = [...columns].filter((column) => !backupColumns.has(column));
+    const extra = [...backupColumns].filter((column) => !columns.has(column));
+    if (missing.length) differences.push(`Backup thiếu cột ${table}: ${missing.join(', ')}`);
+    if (extra.length) differences.push(`Database đích thiếu cột ${table}: ${extra.join(', ')}`);
+  }
+  for (const table of backupTables.keys()) {
+    if (!currentTables.has(table)) differences.push(`Database đích thiếu bảng ${table}`);
+  }
+  return differences;
 }
 
 function serializeRowData(data: Record<string, unknown>) {
