@@ -547,6 +547,9 @@ model Event {
   ticketBackgroundMimeType String?
   ticketBackgroundSize     Int?
   ticketDesign             Json?
+  certificateDesign        Json?
+  certificateBackgroundStorageKey String?
+  certificateBackgroundMimeType String?
   ticketThemePreset        String                   @default("OCEAN")
   ticketLayout             String                   @default("CLASSIC")
   ticketPrimaryColor       String                   @default("#0284C7")

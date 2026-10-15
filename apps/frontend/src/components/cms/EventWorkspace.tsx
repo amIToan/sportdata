@@ -78,6 +78,7 @@ import { MATCH_STATUS_META } from '@/lib/vi-labels';
 import { registrationDisciplineKey, registrationDisciplineLabel, type RegistrationCategory } from '@/lib/registration-table';
 
 const TicketDesignEditor = dynamic(() => import('@/components/cms/TicketDesignEditor').then((module) => module.TicketDesignEditor), { ssr: false });
+const EventCertificatesTab = dynamic(() => import('@/components/cms/EventCertificatesTab').then((module) => module.EventCertificatesTab), { ssr: false });
 const SportdataBracket = dynamic(() => import('@/components/brackets/SportdataBracket').then((module) => module.SportdataBracket), { ssr: false });
 
 type EventWorkspaceProps = {
@@ -164,7 +165,7 @@ const paymentProviderOptions = [
   { value: 'BANK_QR', label: 'Chuyển khoản VietQR' },
 ];
 
-const eventTabKeys = ['overview', 'registrations', 'personnel', 'fops', 'matches', 'payment', 'ticket', 'bracket'] as const;
+const eventTabKeys = ['overview', 'registrations', 'personnel', 'fops', 'matches', 'payment', 'ticket', 'certificates', 'bracket'] as const;
 type EventTabKey = typeof eventTabKeys[number];
 
 function SeedInput({ value, disabled, onSave }: { value?: number | null; disabled?: boolean; onSave: (value: number | null) => void }) {
@@ -362,6 +363,11 @@ export function EventWorkspace({ event, onRefresh }: EventWorkspaceProps) {
           key: 'ticket',
           label: <span className="flex items-center gap-2"><Images className="h-4 w-4" />Thẻ</span>,
           children: <TicketDesignTab event={event} canEdit={canEditEvent} onRefresh={onRefresh} />,
+        },
+        {
+          key: 'certificates',
+          label: <span className="flex items-center gap-2"><Images className="h-4 w-4" />Giấy chứng nhận</span>,
+          children: <EventCertificatesTab key={event.id} event={event} canEdit={canEditEvent} />,
         },
         {
           key: 'bracket',

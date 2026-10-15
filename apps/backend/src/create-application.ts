@@ -4,13 +4,15 @@ import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import compression from "compression";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
-import { raw } from "express";
+import { json, raw } from "express";
 import type { NextFunction, Request, Response } from "express";
 import { constants as zlibConstants } from "zlib";
 
 export async function configureApplication(app: INestApplication) {
   const isEventStream = (request: Request) => /^\/api\/matches\/event\/[^/]+\/stream$/.test(request.path);
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
+  // Large events can have individual award text on thousands of certificates.
+  app.use('/api/events/:eventId/certificates', json({ limit: '6mb' }));
   app.use(
     "/api/system-backup/import/uploads",
     raw({ type: "application/octet-stream", limit: "4mb" }),

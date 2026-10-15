@@ -57,8 +57,7 @@
   color: #0ea5e9;
 }
 
-.item:focus-visible,
-.toggle:focus-visible {
+.item:focus-visible {
   outline: 2px solid #0ea5e9;
   outline-offset: 3px;
 }
@@ -93,29 +92,8 @@
   white-space: nowrap;
 }
 
-.toggle {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 1;
-  display: grid;
-  width: 1.75rem;
-  height: 1.75rem;
-  place-items: center;
-  border: 1px solid var(--strip-border);
-  border-radius: 50%;
-  background: var(--strip-background);
-  color: inherit;
-  cursor: pointer;
-}
-
-.toggle:hover {
-  color: #0ea5e9;
-}
-
 .marquee:hover .track,
-.marquee:focus-within .track,
-.marquee[data-paused='true'] .track {
+.marquee:focus-within .track {
   animation-play-state: paused;
 }
 
@@ -175,8 +153,7 @@
   }
 
   .duplicateGroup,
-  .repeatedItem,
-  .toggle {
+  .repeatedItem {
     display: none;
   }
 

@@ -686,7 +686,7 @@ export class EventsService {
       if (!exists.length) throw new NotFoundException('Không tìm thấy sự kiện.');
       const images = await transaction.event.findUniqueOrThrow({
         where: { id },
-        select: { bannerStorageKey: true, logoStorageKey: true, ticketBackgroundStorageKey: true },
+        select: { bannerStorageKey: true, logoStorageKey: true, ticketBackgroundStorageKey: true, certificateBackgroundStorageKey: true },
       });
 
       // Only whole-event deletion may remove applied schedules and their matches.
@@ -820,6 +820,9 @@ export class EventsService {
       ticketBackgroundStorageKey: _ticketBackgroundStorageKey,
       bannerStorageKey: _bannerStorageKey,
       logoStorageKey: _logoStorageKey,
+      certificateBackgroundStorageKey: _certificateBackgroundStorageKey,
+      certificateBackgroundMimeType: _certificateBackgroundMimeType,
+      certificateDesign: _certificateDesign,
       ...safeEvent
     } = event;
     const imageVersion = event.updatedAt ? new Date(event.updatedAt).getTime() : undefined;

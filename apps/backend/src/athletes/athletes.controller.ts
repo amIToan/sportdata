@@ -21,6 +21,7 @@ import { AthleteMediaType } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AthletesService } from './athletes.service';
+import { AthletePerformanceService } from './athlete-performance.service';
 import { CreateAthleteDto } from './dto/create-athlete.dto';
 import { UpdateAthleteDto } from './dto/update-athlete.dto';
 import { QueryAthletesDto } from './dto/query-athletes.dto';
@@ -32,7 +33,10 @@ import { UserRole } from '../common/enums/user-role.enum';
 @ApiTags('athletes')
 @Controller('athletes')
 export class AthletesController {
-  constructor(private readonly athletesService: AthletesService) {}
+  constructor(private readonly athletesService: AthletesService, private readonly performance: AthletePerformanceService) {}
+
+  @Get(':id/performance')
+  getPerformance(@Param('id') id: string) { return this.performance.get(id); }
 
   @Post()
   @UseGuards(JwtAuthGuard)

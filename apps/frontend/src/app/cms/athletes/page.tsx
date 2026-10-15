@@ -26,6 +26,7 @@ import { Pencil, Search, Trash2, UserRound } from 'lucide-react';
 import { CmsPageHeader } from '@/components/cms/CmsPageHeader';
 import { api, fetcher } from '@/lib/api';
 import { useSportDataToast } from '@/hooks/useSportDataToast';
+import styles from './page.module.css';
 
 const genderLabels: Record<string, string> = {
   MALE: 'Nam',
@@ -437,9 +438,9 @@ export default function AthletesListPage() {
       />}
 
       <Card className="cms-table" variant="borderless">
-        <Flex align="center" justify="space-between" gap={12} wrap className="border-b border-sdark-800 p-4">
+        <Flex align="center" justify="space-between" gap={12} wrap className={`${styles.tableToolbar} border-b border-sdark-800`}>
           <Typography.Text type="secondary">{total.toLocaleString('vi-VN')} vận động viên</Typography.Text>
-          <Space wrap>
+          <Space wrap size={[8, 8]} className={styles.tableActions}>
             {deleteResult && <Button onClick={() => setResultOpen(true)}>Kết quả lần xóa gần nhất</Button>}
             {canDelete && <>
               <Button
@@ -460,7 +461,7 @@ export default function AthletesListPage() {
             </>}
           </Space>
         </Flex>
-        {canDelete && selectedCount > 0 && <div className="px-4 pt-4">
+        {canDelete && selectedCount > 0 && <div className={styles.selectionNotice}>
           <Alert
             type={selectionChanged ? 'warning' : 'info'}
             showIcon
@@ -485,7 +486,7 @@ export default function AthletesListPage() {
           scroll={{ x: canDelete ? 1290 : 1240 }}
           locale={{ emptyText: error ? 'Chưa tải được danh sách vận động viên.' : 'Không có vận động viên phù hợp.' }}
         />
-        <Flex justify="flex-end" className="border-t border-sdark-800 p-4">
+        <Flex justify="flex-end" className={`${styles.tablePagination} border-t border-sdark-800`}>
           <Pagination
             current={page}
             total={total}

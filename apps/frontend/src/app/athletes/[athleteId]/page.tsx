@@ -7,7 +7,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useParams } from 'next/navigation';
-import { Button, Card, Empty, Skeleton, Statistic, Tag } from 'antd';
+import { Alert, Button, Card, Empty, Pagination, Skeleton, Statistic, Tag } from 'antd';
 import {
   ArrowLeft,
   Calendar,
@@ -24,6 +24,9 @@ import {
 import { fetcher } from '@/lib/api';
 import { calculateAge, formatDate, cn } from '@/lib/utils';
 import { MatchCard } from '@/components/MatchCard';
+import { AthleteEventHistory, type AthletePerformance } from '@/components/AthleteEventHistory';
+
+type MatchResponse = { items: any[]; meta: { total: number } };
 
 export default function AthleteProfilePage() {
   const params = useParams();
@@ -33,26 +36,18 @@ export default function AthleteProfilePage() {
   const athlete = swrAthlete.data as any;
   const athleteLoading = swrAthlete.isLoading;
 
-  const swrMatches = useSWR(
-    athleteId ? '/matches?athleteId=' + athleteId + '&limit=20' : null,
-    fetcher,
-  );
-  const matchesRes = swrMatches.data as any;
-  const matchesLoading = swrMatches.isLoading;
-
-  const matches = useMemo(function () {
-    const res = matchesRes as any;
-    if (!res) return [];
-    return (res.data || res.items || []) as any[];
-  }, [matchesRes]);
+  const [resultPage, setResultPage] = useState(1);
+  const performanceQuery = useSWR<AthletePerformance>(athleteId ? `/athletes/${athleteId}/performance` : null, fetcher);
+  const performance = performanceQuery.data;
+  const matchUrl = athleteId ? `/matches?athleteId=${encodeURIComponent(athleteId)}&hideByes=true` : null;
+  const scheduledQuery = useSWR<MatchResponse>(matchUrl ? `${matchUrl}&status=SCHEDULED&limit=10` : null, fetcher);
+  const runningQuery = useSWR<MatchResponse>(matchUrl ? `${matchUrl}&status=RUNNING&limit=10` : null, fetcher);
+  const resultsQuery = useSWR<MatchResponse>(matchUrl ? `${matchUrl}&status=FINISHED&limit=10&page=${resultPage}` : null, fetcher);
   const scheduledMatches = useMemo(
-    () => matches.filter((match) => match.status === 'SCHEDULED' || match.status === 'RUNNING'),
-    [matches],
+    () => [...(runningQuery.data?.items || []), ...(scheduledQuery.data?.items || [])],
+    [runningQuery.data, scheduledQuery.data],
   );
-  const completedMatches = useMemo(
-    () => matches.filter((match) => match.status === 'FINISHED' || match.status === 'CANCELLED'),
-    [matches],
-  );
+  const completedMatches = resultsQuery.data?.items || [];
 
   const isLoading = athleteLoading;
 
@@ -73,12 +68,11 @@ export default function AthleteProfilePage() {
     );
   }
 
-  const overallStat = athlete.statistics && athlete.statistics[0] ? athlete.statistics[0] : null;
-  const totalMatches = overallStat?.totalMatches || 0;
-  const wins = overallStat?.totalWins || 0;
-  const losses = overallStat?.totalLosses || 0;
-  const draws = overallStat?.totalDraws || 0;
-  const winRate = totalMatches ? Math.round((wins / totalMatches) * 100) : 0;
+  const overallStat = performance;
+  const totalMatches = performance?.totalMatches ?? '—';
+  const wins = performance?.wins ?? '—';
+  const losses = performance?.losses ?? '—';
+  const winRate = performance?.winRate;
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -133,11 +127,11 @@ export default function AthleteProfilePage() {
             <div className="hidden md:flex flex-col items-end gap-2 pb-2">
               <Tag color="gold" icon={<Trophy className="h-4 w-4" />}>Thành tích nổi bật</Tag>
               <div className="flex gap-2 text-2xl font-black">
-                <span className="text-yellow-400">{overallStat?.goldMedals || 0}</span>
+                <span className="text-yellow-400">{overallStat?.goldMedals ?? '—'}</span>
                 <span className="text-slate-300">/</span>
-                <span className="text-slate-300">{overallStat?.silverMedals || 0}</span>
+                <span className="text-slate-300">{overallStat?.silverMedals ?? '—'}</span>
                 <span className="text-slate-300">/</span>
-                <span className="text-amber-700">{overallStat?.bronzeMedals || 0}</span>
+                <span className="text-amber-700">{overallStat?.bronzeMedals ?? '—'}</span>
               </div>
             </div>
           </div>
@@ -214,26 +208,33 @@ export default function AthleteProfilePage() {
             />
             <StatCard
               label="Tỷ lệ thắng"
-              value={winRate + '%'}
+              value={winRate == null ? '—' : winRate + '%'}
               icon={<Target className="w-5 h-5" />}
               color="from-sgold-500 to-amber-600"
             />
           </div>
 
+          {performanceQuery.error && <Alert type="error" showIcon title="Không tải được thống kê thi đấu" action={<Button onClick={() => void performanceQuery.mutate()}>Thử lại</Button>} />}
+          {performance && <>
+            <p className="text-sm text-slate-500">Đã ghi nhận {performance.totalMatches} trận hoàn thành; có mặt trong danh sách {performance.eventCount} sự kiện. Thắng/thua và tỷ lệ thắng tính theo kết quả đã công bố; không tính lượt miễn đấu hoặc trận bị hủy.{performance.pendingResults > 0 ? ` Có ${performance.pendingResults} trận đang chờ công bố kết quả.` : ''}</p>
+            <AthleteEventHistory events={performance.events} />
+          </>}
+
           <MatchList
             title="Lịch thi đấu"
             subtitle="Trận đang diễn ra và sắp tới"
             matches={scheduledMatches}
-            loading={matchesLoading}
+            loading={scheduledQuery.isLoading || runningQuery.isLoading}
             emptyText="Chưa có lịch thi đấu sắp tới."
           />
           <MatchList
-            title="Kết quả gần đây"
+            title="Lịch sử kết quả thi đấu"
             subtitle="Các trận đã hoàn thành"
             matches={completedMatches}
-            loading={matchesLoading}
+            loading={resultsQuery.isLoading}
             emptyText="Chưa có kết quả thi đấu."
           />
+          {(resultsQuery.data?.meta?.total || 0) > 10 && <div className="flex justify-end"><Pagination current={resultPage} pageSize={10} total={resultsQuery.data.meta.total} showSizeChanger={false} onChange={setResultPage} /></div>}
         </div>
       </div>
     </div>
@@ -301,6 +302,11 @@ function MatchList({
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {matches.map((match) => (
+            <div key={match.id} className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {match.event?.name && <Link href={`/events/${match.eventId}`} className="text-sky-500 hover:underline">{match.event.name}</Link>}
+              {match.status === 'FINISHED' && !['PUBLISHED', 'LOCKED'].includes(match.resultStatus) && <Tag color="orange">Chờ công bố kết quả</Tag>}
+            </div>
             <MatchCard
               key={match.id}
               id={match.id}
@@ -311,8 +317,8 @@ function MatchList({
               fop={match.fop}
               matchDate={match.matchDate}
               startTime={match.startTime}
-              athlete1={match.athlete1}
-              athlete2={match.athlete2}
+              athlete1={match.athlete1 || (match.team1 && { ...match.team1, fullName: match.team1.members?.map((member: any) => member.athlete?.fullName).join(' / ') || match.team1.name })}
+              athlete2={match.athlete2 || (match.team2 && { ...match.team2, fullName: match.team2.members?.map((member: any) => member.athlete?.fullName).join(' / ') || match.team2.name })}
               athlete1Score={match.athlete1Score}
               athlete2Score={match.athlete2Score}
               athlete1Advantages={match.athlete1Advantages}
@@ -321,11 +327,12 @@ function MatchList({
               athlete2Penalties={match.athlete2Penalties}
               status={match.status}
               matchType={match.matchType}
-              winnerId={match.winnerId}
+              winnerId={match.winnerTeamId || match.winnerId}
               winMethod={match.winMethod}
               notes={match.notes}
               pool={match.pool}
             />
+            </div>
           ))}
         </div>
       )}

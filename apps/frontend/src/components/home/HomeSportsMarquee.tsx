@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Pause, Play } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/api';
 import { imageUrl } from '@/lib/image-url';
@@ -54,7 +53,6 @@ function sportPictogram(sport: Sport): Pictogram {
 
 export function HomeSportsMarquee() {
   const { data } = useSWR<Sport[]>('/sports', fetcher);
-  const [paused, setPaused] = useState(false);
   const sports = useMemo<MarqueeSport[]>(() => {
     const visibleSports = Array.isArray(data)
       ? data.filter((sport) => sport.isVisible !== false && sport.code && sport.name)
@@ -72,7 +70,7 @@ export function HomeSportsMarquee() {
   const repetitions = Math.max(1, Math.ceil(12 / sports.length));
 
   return (
-    <section className={styles.marquee} data-paused={paused} aria-label="Các bộ môn thể thao">
+    <section className={styles.marquee} aria-label="Các bộ môn thể thao">
       <nav className={styles.viewport} aria-label="Khám phá bộ môn">
         <div className={styles.track} style={{ animationDuration: `${sports.length * repetitions * 4.5}s` }}>
           {[false, true].map((duplicateGroup) => (
@@ -106,16 +104,6 @@ export function HomeSportsMarquee() {
           ))}
         </div>
       </nav>
-      <button
-        type="button"
-        className={styles.toggle}
-        onClick={() => setPaused((value) => !value)}
-        aria-label={paused ? 'Tiếp tục chạy danh sách bộ môn' : 'Tạm dừng chạy danh sách bộ môn'}
-        aria-pressed={paused}
-        title={paused ? 'Tiếp tục' : 'Tạm dừng'}
-      >
-        {paused ? <Play size={16} aria-hidden="true" /> : <Pause size={16} aria-hidden="true" />}
-      </button>
     </section>
   );
 }

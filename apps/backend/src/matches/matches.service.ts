@@ -316,7 +316,12 @@ export class MatchesService {
       });
     }
     if (athleteId) {
-      additionalFilters.push({ OR: [{ athlete1Id: athleteId }, { athlete2Id: athleteId }] });
+      additionalFilters.push({ OR: [
+        { athlete1Id: athleteId }, { athlete2Id: athleteId },
+        { team1: { members: { some: { athleteId } } } },
+        { team2: { members: { some: { athleteId } } } },
+        { participants: { some: { OR: [{ athleteId }, { team: { members: { some: { athleteId } } } }] } } },
+      ] });
     }
     if (venue?.trim()) {
       additionalFilters.push({
