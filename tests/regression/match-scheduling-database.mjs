@@ -224,6 +224,19 @@ try {
   await db.$executeRawUnsafe('DROP TRIGGER reject_schedule_test ON "MatchScheduleItem"');
   console.log('PASS: injected write failure rolls back the entire chain and ownership.');
 
+  const noWeight = await fixture(8);
+  await db.category.update({ where: { id: noWeight.category.id }, data: { minWeight: null, maxWeight: null, weightKind: null } });
+  const noWeightInput = await plans.plannerInput(noWeight.event.id);
+  const selectable = noWeightInput.categories.find(category => category.id === noWeight.category.id);
+  assert.equal(selectable.unsupported, null, 'existing matches can be selected without weight metadata');
+  assert.equal(selectable.matchCount, 7);
+  const noWeightPlan = await draft(noWeight);
+  const noWeightPreview = await preview(noWeight, noWeightPlan);
+  assert.equal(noWeightPreview.canApply, true, JSON.stringify(noWeightPreview.violations));
+  assert.equal(noWeightPreview.assignments.length, 7);
+  await apply(noWeight, noWeightPlan, noWeightPreview);
+  assert.equal(await db.match.count({ where: { schedulePlanId: noWeightPlan.id } }), 7);
+  console.log('PASS: missing weight metadata permits category selection, preview and apply for all existing matches.');
   for (const type of ['REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'DOUBLE_ELIMINATION']) for (const size of [8, 16, 32]) {
     const shaped = await fixture(size, 'FIGHTING', type);
     const sp = await draft(shaped); const sv = await preview(shaped, sp);
@@ -430,7 +443,7 @@ try {
     // Use a valid individual discipline for the editable UI fixture; team
     // disciplines are exercised separately with actual team entries.
     await db.category.update({ where: { id: uiCategory.category.id }, data: { sportId: uiSport.id, discipline: 'FULL_CONTACT', name: 'Full Contact nam · -56 kg' } });
-    await db.category.update({ where: { id: uiAdditionalCategory.category.id }, data: { sportId: uiSport.id, maxWeight: 69, name: 'Full Contact nam · -69 kg' } });
+    await db.category.update({ where: { id: uiAdditionalCategory.category.id }, data: { sportId: uiSport.id, maxWeight: null, minWeight: null, weightKind: null, name: 'Full Contact nam · -69 kg' } });
     await db.event.update({ where: { id: independentA.event.id }, data: { name: 'Giải Jujitsu · Kiểm thử lịch thi đấu' } });
     await db.category.update({ where: { id: independentA.category.id }, data: { name: 'GI nam · -56 kg' } });
     await db.category.update({ where: { id: independentB.category.id }, data: { name: 'Fighting nam · -56 kg' } });

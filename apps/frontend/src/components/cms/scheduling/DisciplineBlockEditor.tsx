@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import dayjs from 'dayjs';
-import { Button, Card, Checkbox, DatePicker, Input, InputNumber, Select, Space, Tag } from 'antd';
+import { Button, Card, Checkbox, DatePicker, Input, InputNumber, Select, Space } from 'antd';
 import { ScheduleConfig, groupLabel, stageLabel, uid } from './schedule-ui';
 import { registrationDisciplineKey, registrationDisciplineLabel } from '@/components/RegistrationDisciplines';
 
@@ -16,9 +16,9 @@ const compareWeight = (a: any, b: any) => (a.weightKind === 'OPEN' ? 2 : a.maxWe
   - (b.weightKind === 'OPEN' ? 2 : b.maxWeight != null ? 0 : 1)
   || (a.maxWeight ?? a.minWeight ?? Infinity) - (b.maxWeight ?? b.minWeight ?? Infinity) || a.id.localeCompare(b.id);
 
-export function DisciplineBlockEditor({ config, input, planId, onChange, onOpen, onWeight }: {
+export function DisciplineBlockEditor({ config, input, planId, onChange, onOpen }: {
   config: ScheduleConfig; input: any; planId?: string; onChange: (config: ScheduleConfig) => void;
-  onOpen: (id: string) => void; onWeight: (categoryId: string, kind: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const [selection, setSelection] = useState<string[]>([]);
   const [discipline, setDiscipline] = useState<string>();
@@ -107,7 +107,6 @@ export function DisciplineBlockEditor({ config, input, planId, onChange, onOpen,
           {category.owner && category.owner !== planId && <Button type="link" onClick={() => onOpen(category.owner)}>Đang ở lịch khác · Mở lịch</Button>}
           {category.unsupported && <p className="mt-1 text-sm text-amber-700">{category.unsupported}</p>}
           {category.draftPlans?.some((draft: any) => draft.id !== planId) && <p className="mt-1 text-sm text-amber-700">Cũng được chọn trong bản nháp: {category.draftPlans.filter((draft: any) => draft.id !== planId).map((draft: any) => draft.name).join(', ')}. Bản nháp chưa giữ chỗ.</p>}
-          {category.maxWeight == null && !category.weightKind && <Space className="mt-2"><Tag>Chưa xác định loại hạng cân</Tag><Select aria-label={`Xác nhận loại cân ${category.name}`} placeholder="Xác nhận loại cân" className="min-w-48" options={[{ value: 'OPEN', label: 'Open / không giới hạn cân' }, ...(category.minWeight != null ? [{ value: 'OVER', label: `Trên ${category.minWeight} kg` }] : [])]} onChange={(kind) => onWeight(category.id, kind)} /></Space>}
         </div>)}</div></Card>
       </div>;
     })}

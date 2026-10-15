@@ -97,7 +97,7 @@ export function contentGroupKey(category: {
     category.gender, category.minAge ?? null, category.maxAge ?? null, category.beltLevel ?? null]);
 }
 
-/** Unknown metadata is never silently treated as an open-weight category. */
+/** Weight metadata only controls ordering; missing metadata must not block scheduling. */
 export function categoryWeight(category: { minWeight?: number | null; maxWeight?: number | null; weightKind?: string | null }) {
   if (category.weightKind === 'OPEN' && category.maxWeight == null && category.minWeight == null) return { kind: 2, value: 0 };
   if ((!category.weightKind || category.weightKind === 'CAPPED') && Number.isFinite(category.maxWeight)
@@ -106,7 +106,7 @@ export function categoryWeight(category: { minWeight?: number | null; maxWeight?
     && category.minWeight != null && category.minWeight >= 0) {
     return { kind: 1, value: category.minWeight };
   }
-  throw new ScheduleGraphError('WEIGHT_METADATA_REQUIRED', 'Cần xác nhận loại hạng cân: có trần, trên ngưỡng hoặc Open.');
+  return { kind: 3, value: 0 };
 }
 
 export function scheduleParticipantIds(match: {

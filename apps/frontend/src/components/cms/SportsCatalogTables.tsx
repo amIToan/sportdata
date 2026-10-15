@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Key } from 'react';
 import { Alert, Button, Card, Empty, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, type TableProps } from 'antd';
 import { Dumbbell, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Tags, Trash2 } from 'lucide-react';
 import { imageUrl } from '@/lib/image-url';
@@ -50,8 +50,11 @@ export function SportsCatalogTables(props: Props) {
   const [categoryPage, setCategoryPage] = useState(1);
   const [sportPageSize, setSportPageSize] = useState(10);
   const [categoryPageSize, setCategoryPageSize] = useState(20);
+  const [selectedCategoryKeys, setSelectedCategoryKeys] = useState<Key[]>([]);
   const [busySport, setBusySport] = useState<string>();
   const categories = useMemo(() => sports.flatMap((sport) => (sport.categories || []).map((category: any) => ({ ...category, sport }))), [sports]);
+  const categoryIds = new Set(categories.map((category) => category.id));
+  const selectedCategories = selectedCategoryKeys.filter((key) => categoryIds.has(key));
   const filteredSports = sports.filter((sport) => matches(sportSearch, [sport.name, sport.displayName, sport.code, sport.subtitle, sport.description]) &&
     (!visibility || (sport.isVisible !== false ? 'visible' : 'hidden') === visibility));
   const filteredCategories = categories.filter((category) =>
@@ -160,6 +163,10 @@ export function SportsCatalogTables(props: Props) {
         </div>}
         <div className="sports-catalog-results">
           <Space wrap><Typography.Text type="secondary">{filteredCategories.length} / {categories.length} hạng đấu</Typography.Text>
+            {selectedCategories.length > 0 && <>
+              <Typography.Text>Đã chọn {selectedCategories.length} hạng đấu</Typography.Text>
+              <Button type="link" className="!px-0" onClick={() => setSelectedCategoryKeys([])}>Bỏ chọn</Button>
+            </>}
             {(activeCount > 0 || categorySearch) && <Button type="link" className="!px-0" icon={<RotateCcw size={14} />} onClick={() => { setFilters({}); setCategorySearch(''); setCategoryPage(1); }}>Xóa bộ lọc</Button>}
           </Space>
           {props.canManageCategories && <Button type="primary" disabled={!sports.length} icon={<Plus size={16} />} onClick={() => props.onEditCategory(sports.find((sport) => sport.id === filters.sportId) || sports[0])}>Thêm hạng đấu</Button>}
@@ -168,7 +175,16 @@ export function SportsCatalogTables(props: Props) {
     </div>
     {tab === 'sports' ? <Table key="sports" rowKey="id" loading={props.loading} columns={sportColumns} dataSource={filteredSports} scroll={{ x: 1190 }} locale={{ emptyText: empty }}
       pagination={pagination(filteredSports.length, sportPage, sportPageSize, (page, size) => { setSportPage(page); setSportPageSize(size); })} /> :
-      <Table key="categories" rowKey="id" loading={props.loading} columns={categoryColumns} dataSource={filteredCategories} scroll={{ x: 1560 }} locale={{ emptyText: empty }}
+      <Table key="categories" rowKey="id" loading={props.loading} columns={categoryColumns} dataSource={filteredCategories} scroll={{ x: 1616 }} locale={{ emptyText: empty }}
+        rowSelection={{
+          selectedRowKeys: selectedCategories,
+          onChange: setSelectedCategoryKeys,
+          preserveSelectedRowKeys: true,
+          fixed: true,
+          columnWidth: 56,
+          getTitleCheckboxProps: () => ({ 'aria-label': 'Chọn tất cả hạng đấu trên trang này' }),
+          getCheckboxProps: (category) => ({ 'aria-label': `Chọn hạng đấu ${category.name}` }),
+        }}
         pagination={pagination(filteredCategories.length, categoryPage, categoryPageSize, (page, size) => { setCategoryPage(page); setCategoryPageSize(size); })} />}
   </Card>;
 }
