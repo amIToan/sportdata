@@ -16,3 +16,4 @@ scripts/
 **/static/uploads/
 output/backups/
 tmp/r2-recovered.jsonl
+/output/qa/

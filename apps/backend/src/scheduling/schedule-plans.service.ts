@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApplyScheduleDto, DeleteScheduleDraftDto, PreviewScheduleDto, SaveScheduleDraftDto } from './dto/schedule-plan.dto';
 import { assertScheduleConfig, eventDays, localDay, ScheduleConfig } from './planner/schedule-config';
-import { categoryWeight, contentGroupKey, isAutomaticScheduleBye } from './planner/main-tree';
+import { contentGroupKey, isAutomaticScheduleBye } from './planner/main-tree';
 import { liveScheduleViolations, previewSnapshot, ScheduleSnapshot, semanticStages } from './planner/snapshot-planner';
 
 function hash(value: unknown): string {
@@ -90,7 +90,6 @@ export class SchedulePlansService {
         let unsupported: string | null = null;
         let stages: ReturnType<typeof semanticStages> = new Map();
         try {
-          categoryWeight(category);
           stages = semanticStages(data, category.id);
           if (['DUO', 'SHOW'].includes(category.discipline)) {
             const entries = data.entries.filter((entry) => entry.categoryId === category.id);
@@ -100,6 +99,7 @@ export class SchedulePlansService {
           }
         } catch (error: any) { unsupported = error.message; }
         const matches = data.matches.filter((match) => match.categoryId === category.id && !isAutomaticScheduleBye(match));
+        if (!matches.length && !unsupported) unsupported = 'Chưa có trận đấu để xếp lịch. Hãy sinh sơ đồ thi đấu trước.';
         return { ...category, groupKey: contentGroupKey(category), unsupported,
           owner: data.owners.find((owner) => owner.categoryId === category.id)?.planId,
           draftPlans: drafts.filter((plan) => (plan.draft as unknown as ScheduleConfig).blocks.some((block) => block.categoryIds.includes(category.id)))

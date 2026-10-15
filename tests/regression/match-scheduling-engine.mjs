@@ -143,7 +143,7 @@ reservation.input.reservations[0].candidateParticipantIds = reservation.input.re
 reservation.input.reservations[0].participantIds = [];
 assert.ok(!planSchedule(reservation.input).violations.some((item) => item.code === 'POTENTIAL_PARTICIPANT_CONFLICT'));
 
-assert.throws(() => categoryWeight({ minWeight: null, maxWeight: null }), /xác nhận/);
+assert.deepEqual(categoryWeight({ minWeight: null, maxWeight: null }), { kind: 3, value: 0 }, 'missing weight metadata does not block scheduling or imply open weight');
 assert.deepEqual([100, 9, 56].map((maxWeight) => categoryWeight({ maxWeight }).value).sort((x, y) => x - y), [9, 56, 100]);
 assert.deepEqual(scheduleParticipantIds({ team1Id: 'team' }, new Map([['team', ['a', 'b']]])), ['athlete:a', 'athlete:b', 'team:team']);
 assert.throws(() => scheduleParticipantIds({ team1Id: 'team' }, new Map()), /thành viên/);

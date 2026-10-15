@@ -226,8 +226,7 @@ function ScheduleWizard({ eventId, canEdit, canScore, initial, storageKey, onClo
       {!canEdit && <Alert type="info" title="Bạn đang ở chế độ chỉ xem." />}
       <ConfigProvider componentDisabled={!canEdit || Boolean(busy)}>
       <fieldset disabled={!canEdit || Boolean(busy)} className="min-w-0">
-        {step === 0 && <div className="space-y-5"><DisciplineBlockEditor config={config} input={input} planId={plan?.id} onChange={change} onOpen={(id) => { if (!dirty) onOpen(id); else setError('Lưu nháp trước khi mở lịch khác để giữ thay đổi.'); }}
-          onWeight={(id, weightKind) => void refreshSetting(() => api.patch(`/categories/${id}`, { weightKind }))} />
+        {step === 0 && <div className="space-y-5"><DisciplineBlockEditor config={config} input={input} planId={plan?.id} onChange={change} onOpen={(id) => { if (!dirty) onOpen(id); else setError('Lưu nháp trước khi mở lịch khác để giữ thay đổi.'); }} />
           <Card size="small" title="Sắp xếp tự động"><label>Giờ bắt đầu<TimePicker needConfirm={false} size="large" aria-label="Giờ bắt đầu tự động" className="w-full !block" format="HH:mm" value={parseLocalTime(first?.startLocalTime)}
             onChange={(value) => change({ ...config, windows: config.windows.map((window, index) => index === 0 ? { ...window, startLocalTime: value?.format('HH:mm') || '' } : window) })} /></label>
             <p className="mt-3">Hệ thống tự chia giờ cho toàn bộ trận đã chọn theo vòng đấu, hạng cân và quy định nghỉ của giải, đồng thời tránh lịch đang có trên thảm.</p>
