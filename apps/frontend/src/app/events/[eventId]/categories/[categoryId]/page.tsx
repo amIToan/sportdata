@@ -294,14 +294,17 @@ export default function CategoryDetailPage() {
             {category?.beltLevel && <Tag color="gold">{beltLabels[category.beltLevel] || category.beltLevel}</Tag>}
             {category?.gender && <Tag>{category.gender}</Tag>}
             {category?.maxWeight && <Tag>Đến {category.maxWeight} kg</Tag>}
-            {event?.ageLimitMode === 'UNRESTRICTED' ? (
-              <Tag>Không giới hạn tuổi</Tag>
-            ) : event?.ageLimitMode === 'CUSTOM' ? (
+            {event?.ageLimitMode === 'UNRESTRICTED' ? null : event?.ageLimitMode === 'CUSTOM' ? (
               <>
                 {event.minAge != null && <Tag>Từ {event.minAge} tuổi</Tag>}
                 {event.maxAge != null && <Tag>Tối đa {event.maxAge} tuổi</Tag>}
               </>
-            ) : category?.maxAge != null && <Tag>Tối đa {category.maxAge} tuổi</Tag>}
+            ) : (
+              <>
+                {category?.minAge != null && <Tag>Từ {category.minAge} tuổi</Tag>}
+                {category?.maxAge != null && <Tag>Tối đa {category.maxAge} tuổi</Tag>}
+              </>
+            )}
             {category?.matchDurationSeconds && <Tag>{Math.round(category.matchDurationSeconds / 60)} phút</Tag>}
           </div>
         </header>

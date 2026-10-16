@@ -44,12 +44,12 @@ export class CreateCategoryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
-  minAge?: number;
+  minAge?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
-  maxAge?: number;
+  maxAge?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()

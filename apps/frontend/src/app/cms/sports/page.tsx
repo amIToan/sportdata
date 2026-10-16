@@ -41,6 +41,8 @@ const emptyCategory = {
   uniform: 'GI',
   beltLevel: 'OPEN',
   matchDurationSeconds: '300',
+  minAge: '',
+  maxAge: '',
   maxWeight: '',
 };
 const formatOptions = [
@@ -131,6 +133,8 @@ export default function SportsPage() {
           uniform: category.uniform || 'GI',
           beltLevel: category.beltLevel || 'OPEN',
           matchDurationSeconds: String(category.matchDurationSeconds || 300),
+          minAge: category.minAge == null ? '' : String(category.minAge),
+          maxAge: category.maxAge == null ? '' : String(category.maxAge),
           maxWeight: category.maxWeight == null ? '' : String(category.maxWeight),
         }
       : emptyCategory);
@@ -263,6 +267,8 @@ export default function SportsPage() {
         uniform: categoryForm.uniform || undefined,
         beltLevel: categoryForm.beltLevel || undefined,
         matchDurationSeconds: categoryForm.matchDurationSeconds ? Number(categoryForm.matchDurationSeconds) : undefined,
+        minAge: categoryForm.minAge !== '' ? Number(categoryForm.minAge) : null,
+        maxAge: categoryForm.maxAge !== '' ? Number(categoryForm.maxAge) : null,
         maxWeight: categoryForm.maxWeight !== '' ? Number(categoryForm.maxWeight) : null,
       };
       if (editingCategory) await api.patch(`/categories/${editingCategory.id}`, payload);
@@ -529,7 +535,7 @@ export default function SportsPage() {
         title={`${editingCategory ? 'Chỉnh sửa' : 'Thêm'} hạng đấu · ${categorySport?.name || ''}`}
         size="xl"
       >
-        <Form layout="vertical" requiredMark={false} onFinish={saveCategory}>
+        <Form layout="vertical" requiredMark={false} onFinish={saveCategory} className="space-y-6 [&_.ant-form-item]:!mb-0">
           {!editingCategory && <Field label="Bộ môn *">
             <Select
               showSearch
@@ -540,7 +546,7 @@ export default function SportsPage() {
               onChange={(id) => setCategorySport(sports.find((sport) => sport.id === id))}
             />
           </Field>}
-          <div className="grid grid-cols-1 gap-x-4 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
             <div className="md:col-span-3">
               <Field label="Tên hạng đấu *">
                 <Input
@@ -563,7 +569,7 @@ export default function SportsPage() {
               />
             </Field>
           </div>
-          <div className="grid grid-cols-1 gap-x-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-4">
             <Field label="Nội dung thi đấu">
               <Select className="w-full" value={categoryForm.discipline} options={disciplineOptions} onChange={(discipline) => setCategoryForm({ ...categoryForm, discipline })} />
             </Field>
@@ -573,8 +579,6 @@ export default function SportsPage() {
             <Field label="Trình độ đai">
               <Select className="w-full" value={categoryForm.beltLevel} options={beltOptions} onChange={(beltLevel) => setCategoryForm({ ...categoryForm, beltLevel })} />
             </Field>
-          </div>
-          <div className="grid grid-cols-1 gap-x-4 md:grid-cols-3">
             <Field label="Thể thức">
               <Select
                 className="w-full"
@@ -583,10 +587,14 @@ export default function SportsPage() {
                 onChange={(format) => setCategoryForm({ ...categoryForm, format })}
               />
             </Field>
-            <NumberField label="Cân nặng tối đa (kg, tùy chọn)" value={categoryForm.maxWeight} step={0.1} onChange={(maxWeight) => setCategoryForm({ ...categoryForm, maxWeight })} />
+          </div>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-4">
+            <NumberField label="Tuổi tối thiểu" value={categoryForm.minAge} onChange={(minAge) => setCategoryForm({ ...categoryForm, minAge })} />
+            <NumberField label="Tuổi tối đa" value={categoryForm.maxAge} onChange={(maxAge) => setCategoryForm({ ...categoryForm, maxAge })} />
+            <NumberField label="Cân nặng tối đa (kg)" value={categoryForm.maxWeight} step={0.1} onChange={(maxWeight) => setCategoryForm({ ...categoryForm, maxWeight })} />
             <NumberField label="Thời lượng trận (giây)" value={categoryForm.matchDurationSeconds} onChange={(matchDurationSeconds) => setCategoryForm({ ...categoryForm, matchDurationSeconds })} />
           </div>
-          <p className="mb-4 text-sm text-slate-400">Cân nặng tối đa chỉ dùng để hiển thị thông tin, không giới hạn đăng ký.</p>
+          <p className="text-sm text-slate-400">Cân nặng tối đa là tùy chọn, chỉ dùng để hiển thị thông tin, không giới hạn đăng ký.</p>
           <Button type="primary" htmlType="submit" block loading={saving}>
             {editingCategory ? 'Lưu hạng đấu' : 'Tạo hạng đấu'}
           </Button>
@@ -623,6 +631,7 @@ function NumberField({
         step={step}
         value={value === '' ? null : Number(value)}
         className="w-full"
+        style={{ width: '100%' }}
         onChange={(nextValue) => onChange(nextValue === null ? '' : String(nextValue))}
       />
     </Field>

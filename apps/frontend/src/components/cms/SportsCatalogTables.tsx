@@ -120,7 +120,7 @@ export function SportsCatalogTables(props: Props) {
     { title: 'Nội dung', dataIndex: 'discipline', width: 180, render: (value) => label(options.discipline, value) },
     { title: 'Trang phục / Đai', key: 'uniform', width: 190, render: (_, category) => <><div>{label(options.uniform, category.uniform)}</div><Typography.Text type="secondary" className="text-xs">{label(options.beltLevel, category.beltLevel)}</Typography.Text></> },
     { title: 'Cân nặng', key: 'weight', width: 140, sorter: (a, b) => (a.maxWeight ?? a.minWeight ?? Infinity) - (b.maxWeight ?? b.minWeight ?? Infinity), render: (_, category) => range(category.minWeight, category.maxWeight, 'kg') },
-    { title: 'Độ tuổi', key: 'age', width: 130, render: (_, category) => range(category.minAge, category.maxAge, 'tuổi') },
+    { title: 'Độ tuổi', key: 'age', width: 130, render: (_, category) => category.minAge == null && category.maxAge == null ? '—' : range(category.minAge, category.maxAge, 'tuổi') },
     { title: 'Thể thức', dataIndex: 'format', width: 170, render: (value) => label(options.format, value) },
     { title: 'Thời lượng', dataIndex: 'matchDurationSeconds', width: 120, sorter: (a, b) => (a.matchDurationSeconds || 0) - (b.matchDurationSeconds || 0), render: (value) => value == null ? '—' : `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}` },
     { title: 'Thao tác', key: 'actions', width: 100, fixed: 'right', render: (_, category) => actions(category, true) },
