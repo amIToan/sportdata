@@ -191,7 +191,7 @@ export class MatchesService {
         throw new BadRequestException('Trận đấu không khớp sân hoặc khung giờ đã xếp');
       }
     }
-    if (match.startTime.getTime() > Date.now()) throw new BadRequestException('Chưa đến giờ thi đấu theo lịch');
+    // Scheduled times are estimates; operators may start a ready match early.
     const feeder = await db.match.findFirst({ where: {
       OR: [{ winnerToMatchId: match.id }, { loserToMatchId: match.id }], status: { not: MatchStatus.FINISHED },
     } });
@@ -199,10 +199,10 @@ export class MatchesService {
     const athletes = [match.athlete1Id, match.athlete2Id];
     const live = await db.match.findFirst({ where: {
       id: { not: match.id }, status: MatchStatus.RUNNING,
-      OR: [{ fopId: match.fopId }, { athlete1Id: { in: athletes } }, { athlete2Id: { in: athletes } }],
+      OR: [{ athlete1Id: { in: athletes } }, { athlete2Id: { in: athletes } }],
     } });
-    if (live) throw new ConflictException('Sân hoặc VĐV đang thi đấu ở trận khác');
-    await this.assertFopAvailability(db, match.eventId, match.fopId, match.startTime, match.endTime, match.id);
+    if (live) throw new ConflictException('VĐV đang thi đấu ở trận khác');
+    // Starting is controlled by the operator, independent of planned mat occupancy.
     await this.assertParticipantAvailability(db, match.eventId, match.categoryId, athletes, match.startTime, match.endTime, match.id);
     const category = await db.category.findUnique({ where: { id: match.categoryId } });
     const rule = await db.sportSchedulingRule.findUnique({ where: { eventId_sportId: { eventId: match.eventId, sportId: category.sportId } } });

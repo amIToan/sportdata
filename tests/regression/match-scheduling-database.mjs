@@ -22,6 +22,7 @@ const { AuthModule } = require('./dist/src/auth/auth.module.js');
 const { SchedulingModule } = require('./dist/src/scheduling/scheduling.module.js');
 const { SchedulePlansService } = require('./dist/src/scheduling/schedule-plans.service.js');
 const { MatchesService } = require('./dist/src/matches/matches.service.js');
+const { ResultsModule } = require('./dist/src/results/results.module.js');
 const { CompetitionsService } = require('./dist/src/competitions/competitions.service.js');
 const { EventsService } = require('./dist/src/events/events.service.js');
 const { contentGroupKey } = require('./dist/src/scheduling/planner/main-tree.js');
@@ -59,7 +60,7 @@ try {
   ], { env: process.env, encoding: 'utf8' });
   assert.equal(migration.status, 0, `Migration failed: ${migration.stderr.replaceAll(sourceUrl.toString(), '[redacted]')}`);
   class TestModule {}
-  Module({ imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), PrismaModule, AuthModule, SchedulingModule] })(TestModule);
+  Module({ imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), PrismaModule, AuthModule, SchedulingModule, ResultsModule] })(TestModule);
   app = await NestFactory.create(TestModule, { logger: false });
   app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.listen(0, '127.0.0.1');
@@ -475,6 +476,91 @@ try {
     assert.equal(moved.requestedStarts[0].actual, Date.parse('2026-10-13T02:00:00Z'));
   }
   console.log('PASS: mixed-gender round-robin / both under-six repechage: -57, -63, +94 within every round, persisted apply, day continuation and legacy block markers.');
+  // A scheduled match may start before its planned date/time. Test the actual
+  // readiness -> lease -> START path and keep the planned time separate from actual time.
+  const early = await fixture(2);
+  const futureDay = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  await db.event.update({ where: { id: early.event.id }, data: {
+    startDate: new Date(`${futureDay}T00:00:00+07:00`), endDate: new Date(`${futureDay}T23:59:00+07:00`),
+  } });
+  early.config.windows = [{ ...early.config.windows[0], localDate: futureDay, endLocalTime: '18:00' }];
+  const earlyPlan = await draft(early);
+  const earlyPreview = await preview(early, earlyPlan);
+  assert.equal(earlyPreview.canApply, true, JSON.stringify(earlyPreview.violations));
+  await apply(early, earlyPlan, earlyPreview);
+  const earlyId = earlyPreview.assignments[0].matchId;
+  const scoreboardApi = async (id, suffix = '', body, expectedStatus = body ? 201 : 200, user = actor) => {
+    const response = await fetch(`${base}/results/matches/${id}/scoreboard${suffix}`, {
+      method: body ? 'POST' : 'GET', headers: { ...(user ? { Authorization: `Bearer ${token(user)}` } : {}),
+        'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const data = await response.json();
+    assert.equal(response.status, expectedStatus, JSON.stringify(data));
+    return data;
+  };
+  await scoreboardApi(earlyId, '', undefined, 401, null);
+  await scoreboardApi(earlyId, '', undefined, 403, viewer);
+  const readyEarly = await scoreboardApi(earlyId);
+  assert.ok(Date.parse(readyEarly.startTime) > Date.now());
+  assert.equal(readyEarly.blockedReason, null, 'future scheduled time must not disable Start');
+  const clientId = randomUUID();
+  await scoreboardApi(earlyId, '/claim', { clientId });
+  await scoreboardApi(earlyId, '/claim', { clientId: randomUUID() }, 409);
+  const startedEarly = await scoreboardApi(earlyId, '', {
+    action: 'START', expectedVersion: readyEarly.resultVersion, clientId,
+  });
+  assert.equal(startedEarly.status, 'RUNNING');
+  await scoreboardApi(earlyId, '', { action: 'START', expectedVersion: startedEarly.resultVersion, clientId }, 400);
+  const persistedEarly = await db.match.findUnique({ where: { id: earlyId } });
+  assert.equal(persistedEarly.startTime.getTime(), earlyPreview.assignments[0].start);
+  assert.ok(Date.parse(persistedEarly.resultData.scoreboard.startedAt) < persistedEarly.startTime.getTime(),
+    'actual start is recorded now without rewriting the planned schedule');
+  const noSchedule = await fixture(2);
+  const unscheduledClaim = await scoreboardApi(noSchedule.generated.matches[0].id, '/claim', { clientId: randomUUID() }, 400);
+  assert.match(unscheduledClaim.message, /Cần xếp sân/);
+  const occupied = await fixture(2, 'NEWAZA', 'MAIN_TREE', early);
+  const occupiedMatch = await db.match.update({ where: { id: occupied.generated.matches[0].id }, data: {
+    matchDate: persistedEarly.matchDate, fopId: early.fops[0].id,
+    startTime: new Date(persistedEarly.endTime.getTime() + 60000),
+    endTime: new Date(persistedEarly.endTime.getTime() + 360000),
+  } });
+  const readyOnSameMat = await scoreboardApi(occupiedMatch.id);
+  assert.equal(readyOnSameMat.blockedReason, null, 'another running match on the mat must not block Start');
+  const sameMatClientId = randomUUID();
+  await scoreboardApi(occupiedMatch.id, '/claim', { clientId: sameMatClientId });
+  const startedOnSameMat = await scoreboardApi(occupiedMatch.id, '', {
+    action: 'START', expectedVersion: readyOnSameMat.resultVersion, clientId: sameMatClientId,
+  });
+  assert.equal(startedOnSameMat.status, 'RUNNING');
+  assert.equal(await db.match.count({ where: { eventId: early.event.id, fopId: early.fops[0].id, status: 'RUNNING' } }), 2);
+  const athleteBusy = await fixture(2, 'NEWAZA', 'MAIN_TREE', early, early.athletes[0]);
+  const athleteBusyMatch = await db.match.update({ where: { id: athleteBusy.generated.matches[0].id }, data: {
+    matchDate: persistedEarly.matchDate, fopId: early.fops[1].id,
+    startTime: new Date(persistedEarly.endTime.getTime() + 600000),
+    endTime: new Date(persistedEarly.endTime.getTime() + 900000),
+  } });
+  await assert.rejects(generator.assertScoreboardReady(db, athleteBusyMatch), /VĐV đang thi đấu/);
+  const busyAthleteClaim = await scoreboardApi(athleteBusyMatch.id, '/claim', { clientId: randomUUID() }, 409);
+  assert.match(busyAthleteClaim.message, /VĐV đang thi đấu/);
+  const awardedEarly = await scoreboardApi(earlyId, '', { action: 'AWARD', side: 1, award: 'POINTS', points: 2,
+    expectedVersion: startedEarly.resultVersion, clientId });
+  const pausedEarly = await scoreboardApi(earlyId, '', { action: 'PAUSE', expectedVersion: awardedEarly.resultVersion, clientId });
+  const finishedEarly = await scoreboardApi(earlyId, '', { action: 'FINISH', winnerId: readyEarly.athlete1Id,
+    winMethod: 'POINTS', expectedVersion: pausedEarly.resultVersion, clientId });
+  assert.equal(finishedEarly.status, 'FINISHED');
+  assert.ok(Date.parse(finishedEarly.resultData.scoreboard.finishedAt) < Date.parse(finishedEarly.startTime));
+  const afterQuickFinish = await fixture(2, 'NEWAZA', 'MAIN_TREE', early);
+  const nextEarly = await db.match.update({ where: { id: afterQuickFinish.generated.matches[0].id }, data: {
+    matchDate: persistedEarly.matchDate, fopId: early.fops[0].id,
+    startTime: new Date(persistedEarly.endTime.getTime() + 1200000),
+    endTime: new Date(persistedEarly.endTime.getTime() + 1500000),
+  } });
+  const nextReady = await scoreboardApi(nextEarly.id);
+  assert.equal(nextReady.blockedReason, null);
+  const nextClientId = randomUUID();
+  await scoreboardApi(nextEarly.id, '/claim', { clientId: nextClientId });
+  assert.equal((await scoreboardApi(nextEarly.id, '', { action: 'START', expectedVersion: nextReady.resultVersion, clientId: nextClientId })).status, 'RUNNING');
+  console.log('PASS HTTP/DB: future START, occupied mat, quick finish -> next START, actual timestamps, auth, leases, duplicate START, unscheduled and busy-athlete guards.');
   if (process.env.SCHEDULE_UI === '1' || process.argv.includes('--ui')) {
     const uiCategory = await fixture(32, 'FULL_CONTACT', 'MAIN_TREE', independentA);
     const uiAdditionalCategory = await fixture(8, 'FULL_CONTACT', 'MAIN_TREE', independentA);
