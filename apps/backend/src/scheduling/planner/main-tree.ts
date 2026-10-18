@@ -98,15 +98,34 @@ export function contentGroupKey(category: {
 }
 
 /** Weight metadata only controls ordering; missing metadata must not block scheduling. */
-export function categoryWeight(category: { minWeight?: number | null; maxWeight?: number | null; weightKind?: string | null }) {
+export function categoryWeight(category: { name?: string; minWeight?: number | null; maxWeight?: number | null; weightKind?: string | null }) {
   if (category.weightKind === 'OPEN' && category.maxWeight == null && category.minWeight == null) return { kind: 2, value: 0 };
-  if ((!category.weightKind || category.weightKind === 'CAPPED') && Number.isFinite(category.maxWeight)
+  if (category.weightKind !== 'OVER' && Number.isFinite(category.maxWeight)
     && category.maxWeight != null && category.maxWeight > 0) return { kind: 0, value: category.maxWeight };
   if (category.weightKind === 'OVER' && category.maxWeight == null && Number.isFinite(category.minWeight)
-    && category.minWeight != null && category.minWeight >= 0) {
+    && category.minWeight != null && category.minWeight > 0) {
+    return { kind: 1, value: category.minWeight };
+  }
+  // Legacy categories can have an explicit weight label but no usable numeric
+  // metadata. Only read a kg value; never mistake age groups such as U21 for kg.
+  const label = category.name?.match(/([+\-−–]?)\s*(\d+(?:[.,]\d+)?)\s*kg\b/i);
+  if (label) {
+    const value = Number(label[2].replace(',', '.'));
+    if (Number.isFinite(value) && value > 0) return { kind: label[1] === '+' ? 1 : 0, value };
+  }
+  if (Number.isFinite(category.maxWeight) && category.maxWeight != null && category.maxWeight > 0) {
+    return { kind: 0, value: category.maxWeight };
+  }
+  if (Number.isFinite(category.minWeight) && category.minWeight != null && category.minWeight > 0) {
     return { kind: 1, value: category.minWeight };
   }
   return { kind: 3, value: 0 };
+}
+
+/** Compare kg numerically across capped and over-weight classes; open/unknown go last. */
+export function compareCategoryWeights(left: ReturnType<typeof categoryWeight>, right: ReturnType<typeof categoryWeight>) {
+  return Math.max(0, left.kind - 1) - Math.max(0, right.kind - 1)
+    || left.value - right.value || left.kind - right.kind;
 }
 
 export function scheduleParticipantIds(match: {

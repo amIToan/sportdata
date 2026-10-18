@@ -1,5 +1,5 @@
 import { repechageSemifinalIds } from '../../matches/quarterfinal-repechage';
-import { categoryWeight, contentGroupKey, isAutomaticScheduleBye, normalizeMainTree, ScheduleGraphError, scheduleParticipantIds } from './main-tree';
+import { categoryWeight, compareCategoryWeights, contentGroupKey, isAutomaticScheduleBye, normalizeMainTree, ScheduleGraphError, scheduleParticipantIds } from './main-tree';
 import { assertScheduleConfig, eventDays, localDay, localInstant, ScheduleConfig } from './schedule-config';
 import { planSchedule } from './schedule-engine';
 import { PlannerInput, PlannerMatch, PlannerReservation, PlannerViolation } from './schedule-types';
@@ -251,7 +251,7 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
     run.blockIds.forEach((id) => blockOrders.set(id, run.order));
     run.categoryIds.map((id) => categories.find((item) => item.id === id)).filter(Boolean)
       .map((category) => ({ category, ...categoryWeight(category) }))
-      .sort((a, b) => a.kind - b.kind || a.value - b.value || a.category.id.localeCompare(b.category.id))
+      .sort((a, b) => compareCategoryWeights(a, b) || a.category.id.localeCompare(b.category.id))
       .forEach(({ category }, index) => weightOrders.set(category.id, index));
   }
   config.blocks.forEach((block) => {
@@ -264,7 +264,7 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
       try { weighted.push({ category, ...categoryWeight(category) }); }
       catch (error: any) { fail(error.code || 'INVALID_INPUT', `${category.name}: ${error.message}`); }
     }
-    weighted.sort((a, b) => a.kind - b.kind || a.value - b.value || a.category.id.localeCompare(b.category.id));
+    weighted.sort((a, b) => compareCategoryWeights(a, b) || a.category.id.localeCompare(b.category.id));
     weighted.forEach(({ category }) => {
       try {
         const stages = semanticStages(snapshot, category.id);

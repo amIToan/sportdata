@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(new URL('../../apps/backend/package.json', import.meta.url));
 const { MatchesService } = require('./dist/src/matches/matches.service.js');
 const { previewSnapshot } = require('./dist/src/scheduling/planner/snapshot-planner.js');
-const { contentGroupKey } = require('./dist/src/scheduling/planner/main-tree.js');
+const { categoryWeight, compareCategoryWeights, contentGroupKey } = require('./dist/src/scheduling/planner/main-tree.js');
 const generator = new MatchesService({});
 
 function fixture(type = 'ROUND_ROBIN_POOL') {
@@ -51,6 +51,34 @@ for (const type of ['ROUND_ROBIN_POOL', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS', 
       `${type}: each round must run Female -57, Female -63, Male +94 even if Male block was selected first`);
   }
 }
+for (const type of ['ROUND_ROBIN_POOL', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS', 'MAIN_TREE']) {
+  for (const metadata of ['female-missing', 'all-missing', 'inconsistent-kind', 'zero-minimum']) {
+    const f = fixture(type);
+    for (const category of f.snapshot.event.categories) {
+      if (metadata === 'all-missing' || metadata === 'female-missing' && category.gender === 'FEMALE') {
+        category.minWeight = null; category.maxWeight = null; category.weightKind = null;
+      }
+      if (metadata === 'inconsistent-kind') category.weightKind = 'OVER';
+      if (metadata === 'zero-minimum' && category.gender === 'MALE') category.minWeight = 0;
+    }
+    const result = previewSnapshot(f.snapshot, f.config, 'new-plan');
+    assert.equal(result.canApply, true, JSON.stringify(result.violations));
+    const rounds = new Map();
+    for (const item of result.assignments) {
+      const ids = rounds.get(item.stageKey) || [];
+      if (!ids.includes(item.categoryId)) ids.push(item.categoryId);
+      rounds.set(item.stageKey, ids);
+    }
+    for (const ids of rounds.values()) assert.deepEqual(ids, ['female57', 'female63', 'male94'],
+      `${type}/${metadata}: +94 kg must follow -57 and -63 kg within every round`);
+  }
+}
+assert.equal(categoryWeight({ name: 'U21 Nữ −57 kg' }).value, 57);
+assert.equal(categoryWeight({ name: 'Nữ -63,5 kg' }).value, 63.5);
+assert.equal(categoryWeight({ name: 'U21 Nam' }).kind, 3, 'age alone is not a weight');
+assert.equal(categoryWeight({ name: 'Tuyệt đối', weightKind: 'OPEN' }).kind, 2);
+assert.ok(compareCategoryWeights(categoryWeight({ name: 'Nam +55 kg' }), categoryWeight({ name: 'Nữ -63 kg' })) < 0,
+  'numeric kg order must take priority over capped/over flags');
 // Different disciplines still follow the user's block order.
 const separated = fixture();
 const male = separated.snapshot.event.categories[0];

@@ -438,14 +438,17 @@ try {
   await events.remove(emptyEvent.id);
   assert.equal(await db.event.findUnique({ where: { id: emptyEvent.id } }), null);
   console.log('PASS: event deletion with applied/draft schedules, atomic rollback, image cleanup, shared athlete preservation, event isolation and 404.');
-  for (const type of ['ROUND_ROBIN_POOL', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS']) {
+  for (const [type, missingMetadata] of ['ROUND_ROBIN_POOL', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS']
+    .flatMap((type) => [false, true].map((missing) => [type, missing]))) {
     const male = await fixture(5, 'NEWAZA', type);
     const female57 = await fixture(5, 'NEWAZA', type, male, undefined, 'FEMALE');
     const female63 = await fixture(5, 'NEWAZA', type, male, undefined, 'FEMALE');
     await db.category.update({ where: { id: male.category.id }, data: { name: 'Nam +94 kg',
       minWeight: 94, maxWeight: null, weightKind: 'OVER' } });
-    await db.category.update({ where: { id: female57.category.id }, data: { name: 'Nữ -57 kg', maxWeight: 57, weightKind: 'CAPPED' } });
-    await db.category.update({ where: { id: female63.category.id }, data: { name: 'Nữ -63 kg', maxWeight: 63, weightKind: 'CAPPED' } });
+    await db.category.update({ where: { id: female57.category.id }, data: { name: 'Nữ -57 kg',
+      maxWeight: missingMetadata ? null : 57, weightKind: missingMetadata ? null : 'CAPPED' } });
+    await db.category.update({ where: { id: female63.category.id }, data: { name: 'Nữ -63 kg',
+      maxWeight: missingMetadata ? null : 63, weightKind: missingMetadata ? null : 'CAPPED' } });
     const config = structuredClone(male.config);
     config.blocks.push({ ...female57.config.blocks[0], id: 'female-block',
       categoryIds: [female63.category.id, female57.category.id] });
@@ -457,7 +460,7 @@ try {
     const expected = [...rows].sort((a, b) => a.round - b.round
       || weightOrder.indexOf(a.categoryId) - weightOrder.indexOf(b.categoryId) || a.bracketPosition - b.bracketPosition);
     assert.deepEqual(proposal.assignments.map((item) => item.matchId), expected.map((match) => match.id),
-      `${type}: round 1 Female -57/-63 then Male +94; repeat for rounds 2–5`);
+      `${type}, missingMetadata=${missingMetadata}: round 1 Female -57/-63 then Male +94; repeat for rounds 2–5`);
     assert.equal(proposal.assignments.filter((item) => item.localDate === '2026-10-11').length, 2);
     await apply(male, plan, proposal);
     const saved = await db.match.findMany({ where: { eventId: male.event.id }, orderBy: { scheduleSequence: 'asc' } });
