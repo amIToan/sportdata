@@ -241,7 +241,7 @@ function schedulePass(input: PlannerInput, contentNotBefore: Map<string, number>
       if (targetIndex >= 0) attemptedIndex = targetIndex;
     }
     for (; attemptedIndex < windows.length; attemptedIndex += 1) {
-      const window = windows[attemptedIndex];
+      const window = { ...windows[attemptedIndex], fopId: match.fopId || windows[attemptedIndex].fopId };
       const bound = match.windowBounds?.[window.id] || window;
       if (bound.start > window.start) idleReasons.add('Chờ giờ thi đấu theo quy định nội dung');
       let start = Math.max(minimum, window.start, bound.start, fixed ?? -Infinity);
@@ -256,10 +256,14 @@ function schedulePass(input: PlannerInput, contentNotBefore: Map<string, number>
         for (const reservation of reservations) {
           if (reservation.matchId === match.id) continue;
           const transition = overridesTransition && reservation.matchId === previous.matchId ? 0 : reservation.turnaroundSeconds;
+          const changingMat = match.fopId && match.fopId !== match.current?.fopId;
+          const plannedFop = reservation.fopInterval || reservation;
+          const fopStart = changingMat ? Math.min(reservation.start, plannedFop.start) : plannedFop.start;
+          const fopEnd = changingMat ? Math.max(reservation.end, plannedFop.end) : plannedFop.end;
           if (reservation.fopId === window.fopId
-            && start < reservation.end + transition * 1000
-            && interval.end + match.turnaroundSeconds * 1000 > reservation.start) {
-            shifted = Math.max(shifted, reservation.end + transition * 1000);
+            && start < fopEnd + transition * 1000
+            && interval.end + match.turnaroundSeconds * 1000 > fopStart) {
+            shifted = Math.max(shifted, fopEnd + transition * 1000);
             blockers.add(reservation);
             idleReasons.add('Chờ thảm trống và thời gian chuyển trận');
           }
@@ -310,6 +314,7 @@ function schedulePass(input: PlannerInput, contentNotBefore: Map<string, number>
     const reservation: PlannerReservation = { ...chosen, id: match.id,
       contentKey: match.contentKey,
       end: match.actualEnd ?? chosen.end,
+      fopInterval: match.actualEnd == null ? undefined : { start: chosen.start, end: chosen.end },
       participantIds: match.participantIds, candidateParticipantIds: match.candidateParticipantIds,
       minRestSeconds: match.minRestSeconds };
     completed.set(match.id, reservation);

@@ -22,6 +22,7 @@ export type PlannerMatch = {
   minRestSeconds: number;
   windowBounds?: Record<string, Interval>;
   actualEnd?: number;
+  fopId?: string;
   immutable: boolean;
   current?: Interval & { fopId: string; chainSequence?: number };
 };
@@ -35,6 +36,7 @@ export type PlannerWindow = Interval & {
 };
 
 export type PlannerReservation = Interval & {
+  fopInterval?: Interval;
   contentKey?: string;
   id: string;
   matchId?: string;

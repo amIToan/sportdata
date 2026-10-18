@@ -4,12 +4,13 @@ import { useState } from 'react';
 import dayjs from 'dayjs';
 import { parseLocalTime } from '@/lib/date-time';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Alert, Button, Collapse, DatePicker, Drawer, Input, InputNumber, Space, Tabs, Tag, TimePicker } from 'antd';
+import { Alert, Button, Checkbox, Collapse, DatePicker, Drawer, Input, InputNumber, Modal, Select, Space, Tabs, Tag, TimePicker } from 'antd';
 import { ScheduleConfig, clearMatchStart, localDateTime, localDay, localISO, localTime, stageLabel, updateMatchStart } from './schedule-ui';
 import { withCmsReturnTo } from '@/lib/cms-navigation';
 
-export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, canScore, onChange }: {
+export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, canScore, onChange, onTransfer }: {
   proposal: any; config: ScheduleConfig; focusDay?: string; canEdit: boolean; canScore: boolean; onChange: (config: ScheduleConfig) => void;
+  onTransfer?: (config: ScheduleConfig) => void;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -19,6 +20,9 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
   const [moving, setMoving] = useState<any>();
   const [ordering, setOrdering] = useState<any[]>();
   const [dismissed, setDismissed] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [transferring, setTransferring] = useState(false);
+  const [targetFop, setTargetFop] = useState<string>();
   // Also hide this retired warning in previews restored from older local drafts.
   const violations = (proposal.violations || []).filter((item: any) => item.code !== 'POTENTIAL_PARTICIPANT_CONFLICT');
   const notificationKey = (violation: any) => JSON.stringify([proposal.previewId, violation.code, violation.message, violation.description, violation.matchIds]);
@@ -26,6 +30,10 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
   const days = [...new Set<string>(proposal.assignments.map((item: any) => item.localDate))].sort();
   const selectedDay = day && days.includes(day) ? day : days[0];
   const details = new Map<string, any>((proposal.matchDetails || []).map((match: any) => [match.id, match]));
+  const canTransfer = Boolean(canEdit || onTransfer);
+  const movable = (id: string) => details.get(id)?.status === 'SCHEDULED' && !details.get(id)?.immutable;
+  const transferItems = proposal.assignments.filter((item: any) => selected.includes(item.matchId) && movable(item.matchId));
+  const toggle = (id: string, checked: boolean) => setSelected((ids) => checked ? [...new Set([...ids, id])] : ids.filter((item) => item !== id));
   const visible = proposal.assignments.filter((item: any) => item.localDate === selectedDay && (!query
     || `${details.get(item.matchId)?.matchNumber} ${details.get(item.matchId)?.categoryName} ${details.get(item.matchId)?.participants?.join(' ')}`.toLowerCase().includes(query.toLowerCase())));
   const groups = new Map<string, any[]>();
@@ -39,6 +47,10 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
       <Tag>{proposal.byesExcluded?.length || 0} lượt miễn đấu</Tag>
       {proposal.assignments.length > 0 && <span>Kết thúc {localDateTime(proposal.assignments.at(-1).end, config.timezone)}</span>}
     </Space>
+    {canTransfer && <Space wrap><Button disabled={!transferItems.length} onClick={() => { setTargetFop(undefined); setTransferring(true); }}>Chuyển thảm ({transferItems.length} trận)</Button>
+      {!!selected.length && <Button onClick={() => setSelected([])}>Bỏ chọn trận</Button>}
+      <span className="text-sm text-slate-500">Chọn các trận chưa bắt đầu để chuyển sang thảm khác.</span>
+    </Space>}
     {!!proposal.requestedStarts?.length && <Collapse items={[{ key: 'markers', label: 'Mốc yêu cầu và giờ xếp thực tế', children: <div className="space-y-2">
       {proposal.requestedStarts.map((marker: any, index: number) => <div key={index}>{marker.target.stageKey ? stageLabel(marker.target.stageKey, details.get(marker.matchId)?.round) : `Trận #${details.get(marker.target.matchId)?.matchNumber || marker.target.matchId}`} · Yêu cầu {localDateTime(marker.requested, config.timezone)} → {marker.actual == null ? 'Chưa xếp' : localDateTime(marker.actual, config.timezone)}</div>)}
     </div> }]} />}
@@ -62,9 +74,16 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
       const next = full.find((item: any) => item.localDate > selectedDay);
       return { key, label: <span>{stageLabel(first.stageKey, match?.round)} · {match?.categoryName} · {items.length}/{full.length} trận hôm nay {next && `· tiếp tục ${next.localDate}`}</span>,
         children: <div className="space-y-3">
+          {canTransfer && <Checkbox aria-label={`Chọn nhóm ${key}`} disabled={!items.some((item: any) => movable(item.matchId))}
+            checked={items.filter((item: any) => movable(item.matchId)).length > 0 && items.filter((item: any) => movable(item.matchId)).every((item: any) => selected.includes(item.matchId))}
+            onChange={(event) => {
+              const ids = items.filter((item: any) => movable(item.matchId)).map((item: any) => item.matchId);
+              setSelected((current) => event.target.checked ? [...new Set<string>([...current, ...ids])] : current.filter((id) => !ids.includes(id)));
+            }}>Chọn các trận chưa đấu trong nhóm</Checkbox>}
           {canEdit && <Button disabled={Boolean(query)} onClick={() => editOrder(items)}>Đổi thứ tự toàn bộ nhóm ({full.length} trận)</Button>}
           {items.map((item: any) => { const detail = details.get(item.matchId); return <div key={item.matchId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
-            <div><strong>Trận {item.chainSequence} · #{detail?.matchNumber || item.matchId}</strong><div>{localTime(item.start, config.timezone)}–{localTime(item.end, config.timezone)} · {proposal.fops?.find((fop: any) => fop.id === item.fopId)?.name || 'Thảm đã chọn'}</div>
+            <div>{canTransfer && <Checkbox className="mr-2" aria-label={`Chọn chuyển thảm trận #${detail?.matchNumber || item.matchId}`} disabled={!movable(item.matchId)}
+              checked={selected.includes(item.matchId)} onChange={(event) => toggle(item.matchId, event.target.checked)} />}<strong>Trận {item.chainSequence} · #{detail?.matchNumber || item.matchId}</strong><div>{localTime(item.start, config.timezone)}–{localTime(item.end, config.timezone)} · {proposal.fops?.find((fop: any) => fop.id === item.fopId)?.name || 'Thảm đã chọn'}</div>
               <div>{[...(detail?.participants || []), ...(detail?.sources || [])].join(' · ') || 'Chờ xác định VĐV'}</div></div>
             <Space wrap>{detail?.status && <Tag>{({ SCHEDULED: 'Chưa đấu', RUNNING: 'Đang thi đấu', FINISHED: 'Đã kết thúc', CANCELLED: 'Đã hủy' } as Record<string, string>)[detail.status] || detail.status}</Tag>}{detail?.immutable && <Tag color="gold">Đã đấu / đã khóa</Tag>}
               {canEdit && <><Button disabled={detail?.immutable} onClick={() => setMoving({ ...item, pin: false })}>Dời từ đây</Button><Button disabled={detail?.immutable} onClick={() => setMoving({ ...item, pin: true })}>Cố định giờ</Button></>}
@@ -83,6 +102,21 @@ export function MultiDaySchedulePreview({ proposal, config, focusDay, canEdit, c
           localDate: config.windows.find((window) => window.enabled)?.localDate, start: undefined })}>Dời từ đây</Button>}
       </div>; })}
     </div> }]} />}
+    <Modal open={transferring} title={`Chuyển ${transferItems.length} trận sang thảm khác`} okText="Xem trước chuyển thảm" cancelText="Hủy"
+      okButtonProps={{ disabled: !targetFop || !transferItems.length || transferItems.every((item: any) => item.fopId === targetFop) }}
+      onCancel={() => setTransferring(false)} onOk={() => {
+        if (!targetFop || !transferItems.length) return;
+        const ids = new Set<string>(transferItems.map((item: any) => item.matchId));
+        const next = { ...config, matchFops: [...(config.matchFops || []).filter((item) => !ids.has(item.matchId)),
+          ...transferItems.map((item: any) => ({ matchId: item.matchId, fopId: targetFop }))] };
+        setTransferring(false); setSelected([]);
+        (onTransfer || onChange)(next);
+      }}>
+      <p className="mb-3">Chọn thảm đích, xem lại lịch rồi bấm Áp dụng lịch để lưu thay đổi.</p>
+      <Select aria-label="Thảm đích chuyển trận" placeholder="Chọn thảm đích" className="w-full" value={targetFop}
+        onChange={setTargetFop} options={(proposal.fops || []).map((fop: any) => ({ value: fop.id, label: fop.name }))} />
+      <p className="mt-3 text-sm text-slate-500">Các trận đã bắt đầu hoặc đã kết thúc không được chuyển. Giờ dự kiến có thể được điều chỉnh theo lịch của thảm đích.</p>
+    </Modal>
     {moving && <ContinueFromMatchDrawer match={moving} config={config} onClose={() => setMoving(undefined)} onChange={(next) => { onChange(next); setMoving(undefined); }} />}
     {ordering && <MatchOrderEditor items={ordering} details={details} onClose={() => setOrdering(undefined)} onSave={(ids) => {
       const first = ordering[0]; onChange({ ...config, matchOrders: [...config.matchOrders.filter((order) => !(order.categoryId === first.categoryId && order.drawId === first.drawId && order.stageKey === first.stageKey)),

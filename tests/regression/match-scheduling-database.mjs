@@ -314,7 +314,7 @@ try {
   const acknowledgedAudit = await db.auditLog.findFirst({ where: { action: 'APPLY_SCHEDULE_PLAN', entityId: tbdPlan.id } });
   assert.equal(acknowledgedAudit.metadata.acknowledgedWarnings.length, 0);
   const currentFinal = await db.match.findUnique({ where: { id: va.assignments.at(-1).matchId } });
-  await assert.rejects(generator.assertScoreboardReady(db, currentFinal), /Vòng\/nội dung trước/);
+  await assert.rejects(generator.assertScoreboardReady(db, currentFinal), /Cần đủ hai VĐV|Trận đấu nguồn/);
   await db.match.update({ where: { id: currentFinal.id }, data: { athlete1Id: independentA.athletes[0].id } });
   const resolved = await plans.detail(independentA.event.id, pa.id);
   assert.ok(resolved.applied.proposal.violations.some((item) => item.code === 'RESOLVED_PARTICIPANT_CONFLICT'), 'resolved athletes are checked against live reservations');
@@ -561,6 +561,110 @@ try {
   await scoreboardApi(nextEarly.id, '/claim', { clientId: nextClientId });
   assert.equal((await scoreboardApi(nextEarly.id, '', { action: 'START', expectedVersion: nextReady.resultVersion, clientId: nextClientId })).status, 'RUNNING');
   console.log('PASS HTTP/DB: future START, occupied mat, quick finish -> next START, actual timestamps, auth, leases, duplicate START, unscheduled and busy-athlete guards.');
+  const transfer = await fixture(8);
+  const independentReady = await fixture(8, 'NEWAZA', 'MAIN_TREE', transfer);
+  await db.category.update({ where: { id: transfer.category.id }, data: { name: 'Hạng -56 kg', maxWeight: 56 } });
+  await db.category.update({ where: { id: independentReady.category.id }, data: { name: 'Hạng -62 kg', maxWeight: 62 } });
+  await db.event.update({ where: { id: transfer.event.id }, data: {
+    startDate: new Date(`${futureDay}T00:00:00+07:00`), endDate: new Date(`${futureDay}T23:59:00+07:00`),
+  } });
+  const transferConfig = structuredClone(transfer.config);
+  transferConfig.windows = [{ ...transferConfig.windows[0], localDate: futureDay, endLocalTime: '18:00' }];
+  transferConfig.blocks.push({ ...independentReady.config.blocks[0], id: 'independent-block' });
+  const transferPlan = await draft(transfer, transferConfig);
+  const beforeTransfer = await preview(transfer, transferPlan, transferConfig);
+  await apply(transfer, transferPlan, beforeTransfer);
+  const originalRevision = await db.matchScheduleRevision.findUnique({ where: { id: beforeTransfer.previewId } });
+  const qf = transfer.generated.matches.filter((match) => match.round === 1);
+  const startMatch = async (id) => {
+    const ready = await scoreboardApi(id);
+    assert.equal(ready.blockedReason, null);
+    const clientId = randomUUID();
+    await scoreboardApi(id, '/claim', { clientId });
+    return { clientId, board: await scoreboardApi(id, '', { action: 'START', expectedVersion: ready.resultVersion, clientId }) };
+  };
+  await startMatch(qf[0].id);
+  const transferPreview = async (config) => preview(transfer, await plans.detail(transfer.event.id, transferPlan.id), config);
+  const movedConfig = { ...transferConfig, matchFops: [qf[1], qf[2]].map((match) => ({ matchId: match.id, fopId: transfer.fops[1].id })) };
+  const movedProposal = await transferPreview(movedConfig);
+  assert.equal(movedProposal.canApply, true, JSON.stringify(movedProposal.violations));
+  assert.equal(movedProposal.diffSummary.movedFop, 2);
+  assert.equal(movedProposal.segments.length, 2, 'one day/window can contain assignments on two mats');
+  assert.equal((await db.match.findUnique({ where: { id: qf[1].id } })).fopId, transfer.fops[0].id, 'preview does not move live matches');
+  await apply(transfer, transferPlan, movedProposal);
+  for (const match of [qf[1], qf[2]]) {
+    const saved = await generator.findOne(match.id);
+    assert.equal(saved.fopId, transfer.fops[1].id);
+    assert.equal(saved.fop, transfer.fops[1].name);
+    const item = await db.matchScheduleItem.findUnique({ where: { revisionId_matchId: { revisionId: movedProposal.previewId, matchId: match.id } } });
+    assert.equal(item.fopId, saved.fopId);
+  }
+  assert.deepEqual((await db.matchScheduleRevision.findUnique({ where: { id: originalRevision.id } })).proposal, originalRevision.proposal);
+  const stillRunning = await db.match.findUnique({ where: { id: qf[0].id } });
+  assert.equal(stillRunning.status, 'RUNNING');
+  assert.equal(stillRunning.fopId, transfer.fops[0].id);
+  assert.equal(stillRunning.startTime.getTime(), beforeTransfer.assignments[0].start);
+  const refreshedTransfer = await transferPreview(movedConfig);
+  assert.equal(refreshedTransfer.canApply, true, JSON.stringify(refreshedTransfer.violations));
+  assert.equal(refreshedTransfer.assignments.find((item) => item.matchId === qf[1].id).fopId, transfer.fops[1].id);
+  await startMatch(independentReady.generated.matches[0].id);
+  assert.equal(await db.match.count({ where: { eventId: transfer.event.id, fopId: transfer.fops[0].id, status: 'RUNNING' } }), 2,
+    '56 kg round 1 and 62 kg round 1 can START together on mat 1 without completing the other 56 kg matches');
+  assert.equal((await db.match.findUnique({ where: { id: qf[0].id } })).round, 1);
+  assert.equal((await db.match.findUnique({ where: { id: independentReady.generated.matches[0].id } })).round, 1);
+  const runningMove = await transferPreview({ ...movedConfig, matchFops: [...movedConfig.matchFops, { matchId: qf[0].id, fopId: transfer.fops[1].id }] });
+  assert.equal(runningMove.canApply, false);
+  assert.ok(runningMove.violations.some((item) => item.code === 'IMMUTABLE_MATCH'));
+  await db.match.update({ where: { id: qf[2].id }, data: { scheduleLocked: true } });
+  const lockedMove = await transferPreview({ ...movedConfig, matchFops: movedConfig.matchFops.map((item) => item.matchId === qf[2].id ? { ...item, fopId: transfer.fops[0].id } : item) });
+  assert.equal(lockedMove.canApply, false);
+  assert.ok(lockedMove.violations.some((item) => item.code === 'IMMUTABLE_MATCH'));
+  await db.match.update({ where: { id: qf[2].id }, data: { scheduleLocked: false } });
+  const foreignMat = await transferPreview({ ...movedConfig, matchFops: [{ matchId: qf[1].id, fopId: early.fops[0].id }] });
+  assert.ok(foreignMat.violations.some((item) => item.code === 'OUTSIDE_EVENT'));
+  const foreignMatch = await transferPreview({ ...movedConfig, matchFops: [{ matchId: earlyId, fopId: transfer.fops[1].id }] });
+  assert.ok(foreignMatch.violations.some((item) => item.code === 'INVALID_INPUT'));
+  await assert.rejects(transferPreview({ ...movedConfig, matchFops: [movedConfig.matchFops[0], movedConfig.matchFops[0]] }), /Danh sách chuyển thảm/);
+  const raceMat = await db.fop.create({ data: { eventId: transfer.event.id, name: 'Thảm chuyển dự phòng' } });
+  const raceProposal = await transferPreview({ ...movedConfig, matchFops: movedConfig.matchFops.map((item) => item.matchId === qf[1].id ? { ...item, fopId: raceMat.id } : item) });
+  assert.equal(raceProposal.canApply, true, JSON.stringify(raceProposal.violations));
+  await startMatch(qf[1].id);
+  await assert.rejects(apply(transfer, transferPlan, raceProposal), /thay đổi/);
+  assert.equal((await db.match.findUnique({ where: { id: qf[1].id } })).fopId, transfer.fops[1].id, 'a stale transfer cannot move a newly started match');
+  const finishSource = await fixture(2);
+  await db.event.update({ where: { id: finishSource.event.id }, data: {
+    startDate: new Date(`${futureDay}T00:00:00+07:00`), endDate: new Date(`${futureDay}T23:59:00+07:00`),
+  } });
+  const emptyDestination = await fixture(2, 'NEWAZA', 'MAIN_TREE', finishSource);
+  const destinationConfig = structuredClone(emptyDestination.config);
+  destinationConfig.windows = [{ ...destinationConfig.windows[0], fopId: finishSource.fops[1].id, localDate: futureDay, startLocalTime: '09:00', endLocalTime: '09:05' }];
+  const destinationPlan = await draft(emptyDestination, destinationConfig);
+  const destinationPreview = await preview(emptyDestination, destinationPlan, destinationConfig);
+  assert.equal(destinationPreview.canApply, true, JSON.stringify(destinationPreview.violations));
+  await apply(emptyDestination, destinationPlan, destinationPreview);
+  const destinationId = destinationPreview.assignments[0].matchId;
+  const destinationStart = await startMatch(destinationId);
+  const awardedDestination = await scoreboardApi(destinationId, '', { action: 'AWARD', side: 1, award: 'POINTS', points: 2,
+    clientId: destinationStart.clientId, expectedVersion: destinationStart.board.resultVersion });
+  const pausedDestination = await scoreboardApi(destinationId, '', { action: 'PAUSE', clientId: destinationStart.clientId, expectedVersion: awardedDestination.resultVersion });
+  await scoreboardApi(destinationId, '', { action: 'FINISH', winnerId: destinationStart.board.athlete1Id, winMethod: 'POINTS',
+    clientId: destinationStart.clientId, expectedVersion: pausedDestination.resultVersion });
+  const finishedMove = await preview(emptyDestination, await plans.detail(emptyDestination.event.id, destinationPlan.id), {
+    ...destinationConfig, matchFops: [{ matchId: destinationId, fopId: finishSource.fops[0].id }],
+  });
+  assert.equal(finishedMove.canApply, false);
+  assert.ok(finishedMove.violations.some((item) => item.code === 'IMMUTABLE_MATCH'));
+  const finishedMatConfig = { ...finishSource.config,
+    windows: [{ ...finishSource.config.windows[0], localDate: futureDay, endLocalTime: '18:00' }],
+    matchFops: [{ matchId: finishSource.generated.matches[0].id, fopId: finishSource.fops[1].id }] };
+  const finishedMatPlan = await draft(finishSource, finishedMatConfig);
+  const finishedMatProposal = await preview(finishSource, finishedMatPlan, finishedMatConfig);
+  assert.equal(finishedMatProposal.canApply, true, JSON.stringify(finishedMatProposal.violations));
+  assert.ok(finishedMatProposal.assignments[0].start >= destinationPreview.assignments[0].end);
+  await apply(finishSource, finishedMatPlan, finishedMatProposal);
+  assert.equal((await db.match.findUnique({ where: { id: finishSource.generated.matches[0].id } })).fopId, finishSource.fops[1].id);
+  await startMatch(finishSource.generated.matches[0].id);
+  console.log('PASS: batch mat transfers during competition; public fields/revisions/segments; immutable, foreign, duplicate and stale protections; same-mat independent START; destination early-finish SQL consistency.');
   if (process.env.SCHEDULE_UI === '1' || process.argv.includes('--ui')) {
     const uiCategory = await fixture(32, 'FULL_CONTACT', 'MAIN_TREE', independentA);
     const uiAdditionalCategory = await fixture(8, 'FULL_CONTACT', 'MAIN_TREE', independentA);

@@ -196,6 +196,21 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
   const teams = new Map<string, string[]>(snapshot.teams.map((team) => [team.id, team.members.map((member) => member.athleteId)]));
   const byId = new Map<string, any>(snapshot.matches.map((match) => [match.id, match]));
   const byes = new Set(snapshot.matches.filter(isAutomaticScheduleBye).map((match) => match.id));
+  const matchFops = new Map((config.matchFops || []).map((item) => [item.matchId, item.fopId]));
+  for (const [matchId, fopId] of matchFops) {
+    const match = byId.get(matchId);
+    const fop = snapshot.event.fops.find((item) => item.id === fopId);
+    if (!match || !selected.includes(match.categoryId) || byes.has(matchId)) {
+      fail('INVALID_INPUT', 'Chỉ chuyển thảm cho trận thuộc các hạng đã chọn trong lịch.', [matchId]);
+    }
+    if (!fop || fop.venue?.isActive === false || (fop.venue?.timezone || 'Asia/Ho_Chi_Minh') !== config.timezone) {
+      fail('OUTSIDE_EVENT', 'Thảm đích phải thuộc sự kiện, đang hoạt động và cùng múi giờ.', [matchId]);
+    }
+    if (match && match.fopId !== fopId && (match.status !== 'SCHEDULED' || match.scheduleLocked
+      || snapshot.slots.some((slot) => slot.match?.id === matchId && (slot.isLocked || slot.session.status === 'LOCKED')))) {
+      fail('IMMUTABLE_MATCH', 'Chỉ chuyển thảm cho trận chưa bắt đầu và chưa khóa.', [matchId]);
+    }
+  }
   const input: PlannerInput = { matches: [], windows: [], reservations: [], autoContinue: config.autoContinue,
     matchOrders: config.matchOrders, pinnedStarts: config.pinnedStarts.map((pin) => ({ ...pin, startTime: Date.parse(pin.startTime) })),
     earliestStarts: config.earliestStarts.map((marker) => ({ ...marker, notBefore: Date.parse(marker.notBefore) })) };
@@ -292,6 +307,7 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
           const normalized: PlannerMatch = { id: match.id, categoryId: category.id, contentKey: contentGroupKey(category), ...stage,
             blockId: block.id, blockOrder: blockOrders.get(block.id)!, weightOrder: weightOrders.get(category.id)!, bracketPosition: match.bracketPosition
               ?? snapshot.heats.find((heat) => heat.matchId === match.id)?.sequence ?? match.matchNumber ?? 0,
+            fopId: matchFops.get(match.id),
             matchNumber: match.matchNumber, predecessorIds: [...new Set([...predecessors(match.id), ...poolSources])], participantIds: known,
             candidateParticipantIds: candidates(match.id).filter((id) => !known.includes(id)),
             durationSeconds, turnaroundSeconds: block.turnaroundSeconds ?? (rule?.turnaroundMinutes ?? 5) * 60,
@@ -338,6 +354,13 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
       const known = scheduleParticipantIds(match, teams);
       const clock = match.resultData?.scoreboard;
       input.reservations.push({ id: match.id, matchId: match.id, planId: match.schedulePlanId, fopId: match.fopId,
+        // Preserve the planned mat interval too: the SQL exclusion constraint
+        // still reserves it even when the actual finish is earlier.
+        fopInterval: match.schedulePlanId === planId ? { start: +new Date(match.startTime), end: +new Date(match.endTime) }
+        : match.status === 'FINISHED' ? {
+          start: Math.min(+new Date(match.startTime), clock?.startedAt ? Date.parse(clock.startedAt) : Infinity),
+          end: Math.max(+new Date(match.endTime), clock?.finishedAt ? Date.parse(clock.finishedAt) : -Infinity),
+        } : undefined,
         contentKey: category ? contentGroupKey(category) : undefined,
         start: clock?.startedAt ? Date.parse(clock.startedAt) : +new Date(match.startTime),
         end: match.status === 'FINISHED' && clock?.finishedAt ? Date.parse(clock.finishedAt) : +new Date(match.endTime),
@@ -373,9 +396,10 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
     return { matchId: item.matchId, before, after: { start: item.start, end: item.end, fopId: item.fopId },
       kind: !before ? 'ADDED' : before.start === item.start && before.end === item.end && before.fopId === item.fopId ? 'UNCHANGED' : 'CHANGED' };
   }), ...removed.map((match) => ({ matchId: match.id, before: { start: +new Date(match.startTime), end: +new Date(match.endTime), fopId: match.fopId }, after: null, kind: 'REMOVED' }))];
-  const segments = [...new Set(proposal.assignments.map((item) => item.windowId))].map((windowId) => {
-    const items = proposal.assignments.filter((item) => item.windowId === windowId);
-    return { windowId, localDate: items[0].localDate, fopId: items[0].fopId, matchCount: items.length,
+  const segments = [...new Set(proposal.assignments.map((item) => JSON.stringify([item.windowId, item.fopId])))].map((key) => {
+    const [windowId, fopId] = JSON.parse(key);
+    const items = proposal.assignments.filter((item) => item.windowId === windowId && item.fopId === fopId);
+    return { windowId, localDate: items[0].localDate, fopId, matchCount: items.length,
       start: items[0].start, end: items.at(-1)!.end, continuation: items[0].chainSequence > 1 };
   });
   const requestedStarts = input.earliestStarts.map((marker) => {
