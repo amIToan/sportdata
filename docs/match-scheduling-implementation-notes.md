@@ -7,6 +7,7 @@ Tài liệu này ghi tình trạng triển khai và các quyết định bổ su
 
 ## Quyết định đã chốt trong phiên làm việc
 
+- Sửa thứ tự giữa Nam/Nữ: các block liền nhau của cùng môn, nội dung, Gi/No-Gi, nhóm tuổi và đai dùng chung thứ tự vòng → cân nặng, không hoàn tất toàn bộ block Nam trước block Nữ. Ví dụ mỗi vòng xếp Nữ -57 kg → Nữ -63 kg → Nam +94 kg, rồi mới sang vòng tiếp theo. Giữ ID block cũ để mốc tiếp tục và cấu hình đã lưu vẫn hợp lệ; chỉ tính lại thứ tự khi preview. Lịch đang áp dụng cần preview và apply lại để cập nhật. Kiểm thử `mixed-gender-scheduling.mjs` tái hiện lỗi cũ, bao phủ cả hai hướng chọn Nam/Nữ, vòng tròn, repechage dưới 6 và loại trực tiếp; kiểm thử DB bổ sung bao phủ lưu lịch, chuyển ngày và mốc trên block cũ.
 - Giữ quyền toàn hệ thống: ADMIN/GAMES_ADMIN lập lịch; READ_ONLY chỉ xem. Không thêm cấp quyền User–Event.
 - Cập nhật theo yêu cầu mới nhất: bỏ cảnh báo `POTENTIAL_PARTICIPANT_CONFLICT` (hai trận có chung ứng viên đi tiếp), cùng yêu cầu xác nhận của cảnh báo này. Preview mới không sinh cảnh báo; lịch đã lưu và preview cũ trên trình duyệt cũng không hiển thị lại. Giữ kiểm tra VĐV đã xác định, thời gian nghỉ và ràng buộc không xen kẽ hai nội dung. Quyết định này thay thế yêu cầu xác nhận cảnh báo tiềm ẩn trước đây; lịch sử audit đã lưu giữ nguyên.
 - Người dùng đã duyệt cả hai bảng thứ tự vòng REPECHAGE/DOUBLE_ELIMINATION dưới đây; adapter đã triển khai theo bảng.

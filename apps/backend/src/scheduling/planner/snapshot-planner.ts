@@ -230,7 +230,31 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
     if (visiting.has(id)) throw new ScheduleGraphError('DEPENDENCY_CYCLE', 'Quan hệ miễn đấu tạo thành chu trình.', [id]);
     return (sources.get(id) || []).flatMap((source) => byes.has(source) ? predecessors(source, new Set([...visiting, id])) : [source]);
   };
-  config.blocks.forEach((block, blockOrder) => {
+  // Gender splits the entry rosters, not the round/weight order. Existing
+  // drafts may have adjacent male/female blocks, so combine their scheduling
+  // order without changing block IDs used by saved markers and match orders.
+  const runs: Array<{ key: string; order: number; blockIds: string[]; categoryIds: string[] }> = [];
+  config.blocks.forEach((block, index) => {
+    const category = categories.find((item) => item.id === block.categoryIds[0]);
+    const key = category ? contentGroupKey({ ...category, gender: 'MIXED' }) : `invalid:${index}`;
+    let run = runs.at(-1);
+    if (!run || run.key !== key) {
+      run = { key, order: index, blockIds: [], categoryIds: [] };
+      runs.push(run);
+    }
+    run.blockIds.push(block.id);
+    run.categoryIds.push(...block.categoryIds);
+  });
+  const blockOrders = new Map<string, number>();
+  const weightOrders = new Map<string, number>();
+  for (const run of runs) {
+    run.blockIds.forEach((id) => blockOrders.set(id, run.order));
+    run.categoryIds.map((id) => categories.find((item) => item.id === id)).filter(Boolean)
+      .map((category) => ({ category, ...categoryWeight(category) }))
+      .sort((a, b) => a.kind - b.kind || a.value - b.value || a.category.id.localeCompare(b.category.id))
+      .forEach(({ category }, index) => weightOrders.set(category.id, index));
+  }
+  config.blocks.forEach((block) => {
     const weighted: Array<{ category: any; kind: number; value: number }> = [];
     for (const id of block.categoryIds) {
       const category = categories.find((item) => item.id === id);
@@ -241,7 +265,7 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
       catch (error: any) { fail(error.code || 'INVALID_INPUT', `${category.name}: ${error.message}`); }
     }
     weighted.sort((a, b) => a.kind - b.kind || a.value - b.value || a.category.id.localeCompare(b.category.id));
-    weighted.forEach(({ category }, weightOrder) => {
+    weighted.forEach(({ category }) => {
       try {
         const stages = semanticStages(snapshot, category.id);
         const rule = rules.get(category.sportId);
@@ -266,7 +290,7 @@ export function previewSnapshot(snapshot: ScheduleSnapshot, config: ScheduleConf
           const poolSources = snapshot.draws.find((draw) => draw.id === match.drawId)?.type === 'POOL_WINNER_TREE'
             && match.round === 1 ? categoryMatches.filter((item) => stages.get(item.id)?.stageKey.startsWith('POOL_')).map((item) => item.id) : [];
           const normalized: PlannerMatch = { id: match.id, categoryId: category.id, contentKey: contentGroupKey(category), ...stage,
-            blockId: block.id, blockOrder, weightOrder, bracketPosition: match.bracketPosition
+            blockId: block.id, blockOrder: blockOrders.get(block.id)!, weightOrder: weightOrders.get(category.id)!, bracketPosition: match.bracketPosition
               ?? snapshot.heats.find((heat) => heat.matchId === match.id)?.sequence ?? match.matchNumber ?? 0,
             matchNumber: match.matchNumber, predecessorIds: [...new Set([...predecessors(match.id), ...poolSources])], participantIds: known,
             candidateParticipantIds: candidates(match.id).filter((id) => !known.includes(id)),

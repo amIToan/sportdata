@@ -72,8 +72,8 @@ try {
   const base = `${await app.getUrl()}/api`;
   const sport = await db.sport.create({ data: { name: 'Test Jujitsu', code: 'SCHEDULE_TEST' } });
   const country = await db.country.create({ data: { name: 'Test', code: 'ZZ' } });
-  async function fixture(count = 8, discipline = 'NEWAZA', type = 'MAIN_TREE', reuse, sharedAthlete) {
-    const category = await db.category.create({ data: { name: `Test ${randomUUID()}`, sportId: sport.id, gender: 'MALE',
+  async function fixture(count = 8, discipline = 'NEWAZA', type = 'MAIN_TREE', reuse, sharedAthlete, gender = 'MALE') {
+    const category = await db.category.create({ data: { name: `Test ${randomUUID()}`, sportId: sport.id, gender,
       discipline, uniform: 'GI', maxWeight: 56, matchDurationSeconds: 300 } });
     const event = reuse?.event || await db.event.create({ data: { name: 'Schedule integration', sportId: sport.id,
       startDate: new Date('2026-10-11T00:00:00+07:00'), endDate: new Date('2026-10-13T00:00:00+07:00'), categories: { connect: { id: category.id } } } });
@@ -82,7 +82,7 @@ try {
     if (!reuse) await db.sportSchedulingRule.create({ data: { eventId: event.id, sportId: sport.id, matchDurationMinutes: 5, turnaroundMinutes: 0, minRestMinutes: 0 } });
     const athletes = [];
     for (let i = 0; i < count; i++) {
-      const athlete = i === 0 && sharedAthlete ? sharedAthlete : await db.athlete.create({ data: { firstName: `${i}`, lastName: 'Test', fullName: `VĐV ${i}`, gender: 'MALE', countryId: country.id } });
+      const athlete = i === 0 && sharedAthlete ? sharedAthlete : await db.athlete.create({ data: { firstName: `${i}`, lastName: 'Test', fullName: `VĐV ${i}`, gender, countryId: country.id } });
       await db.competitionEntry.create({ data: { eventId: event.id, categoryId: category.id, type: 'INDIVIDUAL', status: 'VERIFIED', athleteId: athlete.id, countryId: country.id } });
       athletes.push(athlete);
     }
@@ -90,6 +90,10 @@ try {
       type, athleteIds: athletes.map((athlete) => athlete.id), seedingMode: 'STANDARD',
     }, []);
     for (const draw of generated.draws) await db.draw.create({ data: { ...draw, eventId: event.id, categoryId: category.id } });
+    for (const group of generated.groups) await db.roundRobinGroup.create({ data: {
+      id: group.id, eventId: event.id, categoryId: category.id, name: group.name,
+      members: { create: group.members },
+    } });
     // The FK targets must exist before progression edges are attached.
     for (const match of generated.matches) {
       const { winnerToMatchId, loserToMatchId, ...data } = match;
@@ -434,6 +438,40 @@ try {
   await events.remove(emptyEvent.id);
   assert.equal(await db.event.findUnique({ where: { id: emptyEvent.id } }), null);
   console.log('PASS: event deletion with applied/draft schedules, atomic rollback, image cleanup, shared athlete preservation, event isolation and 404.');
+  for (const type of ['ROUND_ROBIN_POOL', 'REPECHAGE', 'REPECHAGE_QUARTERFINALS']) {
+    const male = await fixture(5, 'NEWAZA', type);
+    const female57 = await fixture(5, 'NEWAZA', type, male, undefined, 'FEMALE');
+    const female63 = await fixture(5, 'NEWAZA', type, male, undefined, 'FEMALE');
+    await db.category.update({ where: { id: male.category.id }, data: { name: 'Nam +94 kg',
+      minWeight: 94, maxWeight: null, weightKind: 'OVER' } });
+    await db.category.update({ where: { id: female57.category.id }, data: { name: 'Nữ -57 kg', maxWeight: 57, weightKind: 'CAPPED' } });
+    await db.category.update({ where: { id: female63.category.id }, data: { name: 'Nữ -63 kg', maxWeight: 63, weightKind: 'CAPPED' } });
+    const config = structuredClone(male.config);
+    config.blocks.push({ ...female57.config.blocks[0], id: 'female-block',
+      categoryIds: [female63.category.id, female57.category.id] });
+    const plan = await draft(male, config);
+    const proposal = await preview(male, plan, config);
+    assert.equal(proposal.canApply, true, JSON.stringify(proposal.violations));
+    const rows = await db.match.findMany({ where: { eventId: male.event.id } });
+    const weightOrder = [female57.category.id, female63.category.id, male.category.id];
+    const expected = [...rows].sort((a, b) => a.round - b.round
+      || weightOrder.indexOf(a.categoryId) - weightOrder.indexOf(b.categoryId) || a.bracketPosition - b.bracketPosition);
+    assert.deepEqual(proposal.assignments.map((item) => item.matchId), expected.map((match) => match.id),
+      `${type}: round 1 Female -57/-63 then Male +94; repeat for rounds 2–5`);
+    assert.equal(proposal.assignments.filter((item) => item.localDate === '2026-10-11').length, 2);
+    await apply(male, plan, proposal);
+    const saved = await db.match.findMany({ where: { eventId: male.event.id }, orderBy: { scheduleSequence: 'asc' } });
+    assert.deepEqual(saved.map((match) => match.id), expected.map((match) => match.id));
+    // Existing gender-specific block IDs remain valid for saved continuation markers.
+    const marked = structuredClone(config);
+    marked.earliestStarts.push({ target: { blockId: 'female-block', stageKey: 'POOL_2' }, notBefore: '2026-10-13T02:00:00Z' });
+    const current = await plans.detail(male.event.id, plan.id);
+    const moved = await preview(male, current, marked);
+    assert.equal(moved.canApply, true, JSON.stringify(moved.violations));
+    assert.deepEqual(moved.assignments.map((item) => item.matchId), expected.map((match) => match.id));
+    assert.equal(moved.requestedStarts[0].actual, Date.parse('2026-10-13T02:00:00Z'));
+  }
+  console.log('PASS: mixed-gender round-robin / both under-six repechage: -57, -63, +94 within every round, persisted apply, day continuation and legacy block markers.');
   if (process.env.SCHEDULE_UI === '1' || process.argv.includes('--ui')) {
     const uiCategory = await fixture(32, 'FULL_CONTACT', 'MAIN_TREE', independentA);
     const uiAdditionalCategory = await fixture(8, 'FULL_CONTACT', 'MAIN_TREE', independentA);
