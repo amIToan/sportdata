@@ -213,8 +213,40 @@ export async function runScheduleUi({ apiBase, db, eventId, token, actor, catego
     await page.keyboard.press('Enter');
     await page.getByRole('heading', { name: 'Sắp xếp trận đấu', exact: true }).waitFor();
     assert.ok(await page.getByText('Lich B - Fighting updated', { exact: true }).count());
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    const transferPlan = await db.matchSchedulePlan.findFirst({ where: { eventId, name: 'Lich B - Fighting updated' } });
+    const beforeTransfer = await db.match.findMany({ where: { schedulePlanId: transferPlan.id } });
+    const targetMat = await db.fop.findFirst({ where: { eventId, name: 'Thảm 3' } });
+    await page.locator('.ant-card').filter({ hasText: 'Lich B - Fighting updated' }).first().getByRole('button', { name: 'Mở lịch', exact: true }).click();
+    await page.getByText('Đang xem lịch đã áp dụng', { exact: true }).waitFor();
+    await page.locator('.ant-collapse-header').filter({ hasText: 'Bán kết' }).first().click();
+    await page.getByRole('checkbox', { name: /^Chọn chuyển thảm trận #/ }).first().check();
+    await page.getByRole('button', { name: 'Chuyển thảm (1 trận)', exact: true }).click();
+    await page.getByLabel('Thảm đích chuyển trận', { exact: true }).click();
+    await page.locator('.ant-select-item-option-content').filter({ hasText: /^Thảm 3$/ }).click();
+    await page.screenshot({ path: `${output}/12-transfer-dialog.png`, fullPage: true });
+    const transferResponse = page.waitForResponse((response) => response.url().endsWith('/preview') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Xem trước chuyển thảm', exact: true }).click();
+    const transferProposal = await (await transferResponse).json();
+    assert.equal(transferProposal.canApply, true, JSON.stringify(transferProposal.violations));
+    assert.equal(transferProposal.diffSummary.movedFop, 1);
+    const movedMatch = transferProposal.assignments.find((item) => item.fopId === targetMat.id);
+    assert.ok(movedMatch);
+    assert.notEqual((await db.match.findUnique({ where: { id: movedMatch.matchId } })).fopId, targetMat.id, 'mat transfer remains a preview until Apply');
+    await page.getByText('3/3 trận đã xếp', { exact: true }).waitFor();
+    await page.locator('.ant-collapse-header').filter({ hasText: 'Bán kết' }).first().click();
+    await page.screenshot({ path: `${output}/13-transfer-preview.png`, fullPage: true });
+    await page.getByRole('button', { name: 'Áp dụng lịch', exact: true }).click();
+    await page.getByRole('button', { name: 'Xác nhận áp dụng', exact: true }).click();
+    await page.getByRole('heading', { name: 'Sắp xếp trận đấu', exact: true }).waitFor();
+    const afterTransfer = await db.match.findMany({ where: { schedulePlanId: transferPlan.id } });
+    assert.equal(afterTransfer.find((match) => match.id === movedMatch.matchId).fopId, targetMat.id);
+    for (const match of beforeTransfer.filter((match) => match.id !== movedMatch.matchId)) {
+      assert.equal(afterTransfer.find((other) => other.id === match.id).fopId, match.fopId);
+    }
+    await page.screenshot({ path: `${output}/14-transferred-overview.png`, fullPage: true });
     assert.deepEqual(browserErrors, []);
-    console.log('PASS: real API UI overview A/B, wizard/back state, overflow, preview/diff/apply, draft isolation, continuation, UTC and mobile. Screenshots: output/qa/match-scheduling.');
+    console.log('PASS: real API UI overview A/B, wizard/back state, overflow, preview/diff/apply, draft isolation, continuation, UTC, mobile and selected-match mat transfer. Screenshots: output/qa/match-scheduling.');
   } finally {
     if (browser) await browser.close();
     frontend.kill('SIGTERM');

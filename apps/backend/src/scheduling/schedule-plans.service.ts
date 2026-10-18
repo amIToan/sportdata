@@ -106,7 +106,7 @@ export class SchedulePlansService {
             .map((plan) => ({ id: plan.id, name: plan.name })),
           entryCount: data.entries.filter((entry) => entry.categoryId === category.id && ['REGISTERED', 'VERIFIED'].includes(entry.status)).length,
           entryUnit: data.entries.some((entry) => entry.categoryId === category.id && entry.type !== 'INDIVIDUAL') ? 'đội' : 'VĐV',
-          matchCount: matches.length, stages: [...new Map([...stages.entries()].map(([id, stage]) => [stage.stageKey,
+          matchCount: matches.length, matchIds: matches.map((match) => match.id), stages: [...new Map([...stages.entries()].map(([id, stage]) => [stage.stageKey,
             { ...stage, round: data.matches.find((match) => match.id === id)?.round }])).values()].sort((a, b) => a.stageOrder - b.stageOrder),
         };
       }) };
@@ -258,11 +258,13 @@ export class SchedulePlansService {
       if (hash(proposal) !== hash(revision.proposal)) throw new ConflictException('Kết quả tính lịch đã thay đổi. Hãy xem trước lại.');
       if (!proposal.canApply) throw new BadRequestException('Lịch còn lỗi hoặc trận chưa xếp; không thể áp dụng.');
       if (proposal.warningsRequiringAcknowledgement.length && !dto.acknowledgeWarnings) throw new BadRequestException('Cần xác nhận cảnh báo VĐV chưa xác định trước khi áp dụng.');
-      const mutable = snapshot.matches.filter((match) => (match.schedulePlanId === planId || proposal.assignments.some((item) => item.matchId === match.id))
+      const changedIds = new Set(proposal.diff.filter((item) => item.kind !== 'UNCHANGED').map((item) => item.matchId));
+      const mutable = snapshot.matches.filter((match) => changedIds.has(match.id)
+        && (match.schedulePlanId === planId || proposal.assignments.some((item) => item.matchId === match.id))
         && !match.scheduleLocked && !['RUNNING', 'FINISHED'].includes(match.status)
         && !snapshot.slots.some((slot) => slot.match?.id === match.id && (slot.isLocked || slot.session.status === 'LOCKED')));
       await db.$executeRaw`SELECT set_config('sportdata.schedule_apply', ${planId}, true)`;
-      // EXCLUDE is immediate: release only mutable rows inside this transaction,
+      // EXCLUDE is immediate: release only changed mutable rows inside this transaction,
       // then project the exact preview. Any failure rolls back both phases.
       await db.match.updateMany({ where: { id: { in: mutable.map((match) => match.id) } }, data: {
         startTime: null, endTime: null, timeSlotId: null, sessionId: null,

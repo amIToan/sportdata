@@ -156,3 +156,26 @@ const tree = small.originals.filter((match) => match.drawId === 'draw-0');
 assert.throws(() => normalizeMainTree({ id: 'draw-0', bracketSize: 32 }, tree.slice(1)), /topology/);
 assert.equal(normalizeMainTree({ id: 'draw-0' }, tree).get(tree.at(-1).id).stageKey, 'F');
 console.log('PASS: MAIN_TREE 55 matches; A/B/C/D continuation; strict ordering, immutability of input, overflow, markers, pins, cycles, rest, reservations, TBD and team roster.');
+
+const transfer = fixture([8]);
+transfer.matches[1].fopId = 'fop-2';
+transfer.matches[2].fopId = 'fop-2';
+const transferBefore = structuredClone(transfer.input);
+const transferred = planSchedule(transfer.input);
+assert.equal(transferred.canApply, true);
+assert.equal(transferred.assignments[0].fopId, 'fop-1');
+assert.ok(transferred.assignments.slice(1, 3).every((item) => item.fopId === 'fop-2'));
+assert.ok(transferred.assignments.slice(3).every((item) => item.fopId === 'fop-1'));
+assert.deepEqual(transfer.input, transferBefore);
+const occupiedDestination = structuredClone(transfer.input);
+occupiedDestination.reservations.push({ id: 'other-mat-reservation', fopId: 'fop-2', start: instant('11'), end: instant('11', '10:00'),
+  turnaroundSeconds: 0, minRestSeconds: 0, participantIds: [], candidateParticipantIds: [] });
+const shiftedTransfer = planSchedule(occupiedDestination);
+assert.equal(shiftedTransfer.canApply, true);
+assert.equal(shiftedTransfer.assignments[1].start, instant('11', '10:00'));
+const finishedDestination = structuredClone(transfer.input);
+finishedDestination.reservations.push({ id: 'finished-on-mat-2', fopId: 'fop-2', start: instant('11', '08:00'), end: instant('11', '08:05'),
+  fopInterval: { start: instant('11'), end: instant('11', '09:30') },
+  turnaroundSeconds: 0, minRestSeconds: 0, participantIds: [], candidateParticipantIds: [] });
+assert.equal(planSchedule(finishedDestination).assignments[1].start, instant('11', '09:30'), 'preview respects SQL mat reservations after an early finish');
+console.log('PASS: selected matches move mats; unselected matches stay; destination reservations shift times; early finishes remain consistent with SQL.');

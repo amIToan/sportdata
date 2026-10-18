@@ -10,6 +10,7 @@ export type ScheduleConfig = {
   earliestStarts: Array<{ target: { matchId: string } | { blockId: string; stageKey: string }; notBefore: string }>;
   matchOrders: Array<{ categoryId: string; drawId: string; stageKey: string; orderedMatchIds: string[] }>;
   pinnedStarts: Array<{ matchId: string; startTime: string }>;
+  matchFops?: Array<{ matchId: string; fopId: string }>;
 };
 
 export function localDay(value: Date | string | number, timezone: string): string {
@@ -87,4 +88,9 @@ export function assertScheduleConfig(config: unknown, complete = true): asserts 
     || !('matchId' in marker.target ? string(marker.target.matchId) : string(marker.target.blockId) && string(marker.target.stageKey))) throw new Error('Mốc sớm nhất không hợp lệ.');
   for (const pin of object.pinnedStarts) if (!pin || !string(pin.matchId)
     || !(/^\d{4}-.*(?:Z|[+-]\d\d:\d\d)$/.test(pin.startTime)) || !Number.isFinite(Date.parse(pin.startTime))) throw new Error('Mốc cố định không hợp lệ.');
+  if (object.matchFops !== undefined && (!Array.isArray(object.matchFops) || object.matchFops.length > 20000
+    || object.matchFops.some((item) => !item || !string(item.matchId) || !string(item.fopId))
+    || new Set(object.matchFops.map((item) => item.matchId)).size !== object.matchFops.length)) {
+    throw new Error('Danh sách chuyển thảm không hợp lệ hoặc có trận bị trùng.');
+  }
 }

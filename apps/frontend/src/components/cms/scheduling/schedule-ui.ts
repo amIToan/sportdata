@@ -13,6 +13,7 @@ export type ScheduleConfig = {
   earliestStarts: Array<{ target: { matchId: string } | { blockId: string; stageKey: string }; notBefore: string }>;
   matchOrders: Array<{ categoryId: string; drawId: string; stageKey: string; orderedMatchIds: string[] }>;
   pinnedStarts: Array<{ matchId: string; startTime: string }>;
+  matchFops?: Array<{ matchId: string; fopId: string }>;
 };
 export const uid = () => crypto.randomUUID();
 // Only prepare availability here. The backend still orders and places every match.

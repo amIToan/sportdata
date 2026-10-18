@@ -148,11 +148,8 @@ export class MatchesService {
     if (match.schedulePlanId && match.scheduleRevisionId) {
       const current = await db.matchScheduleItem.findUnique({ where: { revisionId_matchId: { revisionId: match.scheduleRevisionId, matchId: match.id } } });
       if (!current) throw new ConflictException('Lịch thi đấu không nhất quán. Hãy mở lịch để kiểm tra.');
-      const earlier = await db.matchScheduleItem.findMany({ where: { revisionId: match.scheduleRevisionId,
-        chainSequence: { lt: current.chainSequence } }, include: { match: true } });
-      const unfinished = earlier.find((item) => (item.blockId !== current.blockId || item.stageKey !== current.stageKey)
-        && item.match.status !== 'FINISHED' && !isAutomaticScheduleBye(item.match));
-      if (unfinished) throw new ConflictException(`Vòng/nội dung trước còn trận #${unfinished.match.matchNumber || unfinished.matchId} chưa hoàn tất.`);
+      // The schedule is an ordering guide. Other ready matches may run in parallel;
+      // actual feeder results and participant availability are checked below.
     }
     if (!match.athlete1Id || !match.athlete2Id || match.athlete1Id === match.athlete2Id) {
       throw new BadRequestException('Cần đủ hai VĐV khác nhau trước khi bắt đầu');

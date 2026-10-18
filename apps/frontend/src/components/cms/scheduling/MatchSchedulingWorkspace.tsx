@@ -138,6 +138,11 @@ function ScheduleWizard({ eventId, canEdit, canScore, initial, storageKey, onClo
   }, [config, plan, customWindows, dirty, mode, storageKey]);
   useEffect(() => () => { sequence.current += 1; clearTimeout(recompute.current); }, []);
   const change = (next: ScheduleConfig) => {
+    if (next.matchFops && input?.categories.every((category: any) => Array.isArray(category.matchIds))) {
+      const selected = new Set(next.blocks.flatMap((block) => block.categoryIds));
+      const allowed = new Set(input.categories.filter((category: any) => selected.has(category.id)).flatMap((category: any) => category.matchIds));
+      next = { ...next, matchFops: next.matchFops.filter((item) => allowed.has(item.matchId)) };
+    }
     sequence.current += 1; setPast((items) => [...items.slice(-49), config]); setFuture([]); setConfig(next); setDirty(true);
     setProposal(undefined); setAcknowledged(false); applyRequest.current = undefined; setError('');
   };
@@ -220,7 +225,13 @@ function ScheduleWizard({ eventId, canEdit, canScore, initial, storageKey, onClo
         setConfig(detail.draft); setPlan(detail); setCustomWindows(true);
         setProposal(undefined); setPast([]); setFuture([]); setStep(0); setMode('edit');
       }}>{hasDraft ? 'Tiếp tục chỉnh bản nháp' : 'Chỉnh sửa lịch'}</Button>}
-      <MultiDaySchedulePreview proposal={liveApplied.proposal} config={displayedConfig} focusDay={initial.day} canEdit={false} canScore={canScore} onChange={() => {}} />
+      <MultiDaySchedulePreview proposal={liveApplied.proposal} config={displayedConfig} focusDay={initial.day} canEdit={false} canScore={canScore} onChange={() => {}}
+        onTransfer={canEdit && !hasDraft ? (next) => {
+          const detail = latest || initial.detail;
+          setConfig(next); setPlan(detail); setCustomWindows(true); setProposal(undefined);
+          setPast([]); setFuture([]); setStep(2); setMode('edit'); setDirty(true);
+          setAcknowledged(false); applyRequest.current = undefined; attemptedConfig.current = undefined;
+        } : undefined} />
     </> : <>
       <Steps current={step} items={[{ title: 'Chọn nội dung & giờ bắt đầu' }, { title: 'Tùy chỉnh (nếu cần)' }, { title: 'Lịch tự động' }]} />
       {!canEdit && <Alert type="info" title="Bạn đang ở chế độ chỉ xem." />}
